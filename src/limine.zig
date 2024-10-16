@@ -34,15 +34,12 @@ pub fn preventOptimizations() void {
 }
 
 pub inline fn limineBaseRevisionSupported() bool {
-    const base_revision_ptr: *volatile u64 = &limine_base_revision[2];
-    return base_revision_ptr.* == 0;
+    return limine_base_revision[2] == 0;
 }
 
 pub fn drawLine() void {
-    // TODO check if this is actually needed
     // The framebuffer needs to use 32 bits per pixel for this code to work as intended
-    const framebuffer_request_ptr: *volatile limine.limine_framebuffer_request = &limine_framebuffer_request;
-    const framebuffer_request = framebuffer_request_ptr.*;
+    const framebuffer_request = limine_framebuffer_request;
 
     if (framebuffer_request.response == null or framebuffer_request.response.*.framebuffer_count < 1) return;
 
