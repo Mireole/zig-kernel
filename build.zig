@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 
 const base_qemu_args = .{
     "-cdrom", "sanity.iso",
+    "-serial", "stdio",
 };
 
 const qemu_debug_args = .{

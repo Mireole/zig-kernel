@@ -1,6 +1,12 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const limine = @import("limine.zig");
+
+pub const limine = @import("limine.zig");
+
+pub const runtime_safety = switch (builtin.mode) {
+    .Debug, .ReleaseSafe => true,
+    .ReleaseFast, .ReleaseSmall => false,
+};
 
 inline fn hcf() noreturn {
     // Loop forever (until interrupted)
@@ -20,7 +26,7 @@ export fn _start() noreturn {
 }
 
 fn kmain() noreturn {
-    limine.preventOptimizations();
+    limine.initialize();
 
     if (!limine.limineBaseRevisionSupported()) {
         hcf();

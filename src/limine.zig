@@ -1,5 +1,12 @@
+const builtin = @import("builtin");
 const limine = @import("limine");
 const std = @import("std");
+
+const runtime_safety = @import("root").runtime_safety;
+
+// 4GiB
+const hhdm_size = 0x1_0000_0000;
+
 // The translation to zig code misses quite a few macros, therefore some of them have to be reimplemented here
 
 const limine_common_magic: [2]u64 = .{ 0xc7b1dd30df4c8b88, 0x0a82e883a194f07b };
@@ -20,27 +27,52 @@ export var limine_requests_end_marker linksection(".requests_end_marker") = @as(
 );
 
 // Requests
-export var limine_framebuffer_request linksection(".requests") = limine.limine_framebuffer_request{
-    .id = limine_common_magic ++ .{0x9d5827dcd881dd75, 0xa3148604f6fab11b},
+// Framebuffer request
+export var framebuffer_request linksection(".requests") = limine.limine_framebuffer_request{
+    .id = limine_common_magic ++ .{ 0x9d5827dcd881dd75, 0xa3148604f6fab11b },
     .revision = 0,
 };
 
-pub fn preventOptimizations() void {
+// HHDM request
+export var hhdm_request linksection(".requests") = limine.limine_hhdm_request{
+    .id = limine_common_magic ++ .{ 0x48dcf1cb8ad2b852, 0x63984e959a98244b },
+    .revision = 0,
+};
+var hhdm_start: u64 = undefined;
+
+// Kernel address
+export var kernel_address_request linksection(".requests") = limine.limine_kernel_address_request{
+    .id = limine_common_magic ++ .{ 0x71ba76863cc55f63, 0xb2644a48c516a487 },
+    .revision = 0,
+};
+
+pub fn initialize() void{
+    preventOptimizations();
+
+    // HHDM start
+    if (hhdm_request.response == null) @panic("Cannot retrieve the HHDM start address");
+    hhdm_start = hhdm_request.response.*.offset;
+}
+
+fn preventOptimizations() void {
     // Without these lines the compiler removes our markers and requests
+    // Markers
     std.mem.doNotOptimizeAway(limine_base_revision);
     std.mem.doNotOptimizeAway(limine_requests_start_marker);
     std.mem.doNotOptimizeAway(limine_requests_end_marker);
-    std.mem.doNotOptimizeAway(limine_framebuffer_request);
+    // Requests
+    std.mem.doNotOptimizeAway(framebuffer_request);
+    std.mem.doNotOptimizeAway(hhdm_request);
+    std.mem.doNotOptimizeAway(kernel_address_request);
 }
 
 pub inline fn limineBaseRevisionSupported() bool {
+    // Implementation of the LIMINE_BASE_REVISION_SUPPORTED macro
     return limine_base_revision[2] == 0;
 }
 
 pub fn drawLine() void {
     // The framebuffer needs to use 32 bits per pixel for this code to work as intended
-    const framebuffer_request = limine_framebuffer_request;
-
     if (framebuffer_request.response == null or framebuffer_request.response.*.framebuffer_count < 1) return;
 
     const framebuffer = framebuffer_request.response.*.framebuffers[0];
@@ -49,4 +81,16 @@ pub fn drawLine() void {
         const fb_ptr: [*]volatile u32 = @alignCast(@ptrCast(framebuffer.*.address));
         fb_ptr[i * (framebuffer.*.pitch / 4) + i] = 0xffffffff;
     }
+}
+
+pub inline fn toVirtualAddress(T: type, val: *T) *T {
+    const phys_addr: usize = @intFromPtr(val);
+    if (runtime_safety) {
+        if (phys_addr >= hhdm_size) {
+            @branchHint(.cold);
+            @panic("Physical address too large to be contained in the HHDM") ;
+        }
+    }
+    const virt_addr: usize = phys_addr + hhdm_start;
+    return @ptrFromInt(virt_addr);
 }
