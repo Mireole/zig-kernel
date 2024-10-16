@@ -1,16 +1,25 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const qemu_args = .{
+const base_qemu_args = .{
     "-cdrom", "sanity.iso",
-    // Debugging
+};
+
+const qemu_debug_args = .{
     "-s", // Enable the gdb stub
     "-S", // Start on paused state
 };
 
 const Step = std.Build.Step;
 
-pub fn build(b: *std.Build) void {
+pub fn build(b: *std.Build) !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
+    const allocator = gpa.allocator();
+    defer {
+        const status = gpa.deinit();
+        if (status == .leak) @panic("Memory leak");
+    }
+
     const arch = b.option(std.Target.Cpu.Arch, "arch", "The target kernel architecture") orelse .x86_64;
 
     var code_model: std.builtin.CodeModel = .default;
@@ -42,7 +51,7 @@ pub fn build(b: *std.Build) void {
                 "qemu-system-x86_64",
                 "-M", "q35",
                 "-drive", "if=pflash,unit=0,format=raw,file=ovmf/ovmf-code-x86_64.fd,readonly=on",
-            } ++ qemu_args);
+            } ++ base_qemu_args);
         },
         .aarch64 => {
             const Feature = std.Target.aarch64.Feature;
@@ -62,7 +71,7 @@ pub fn build(b: *std.Build) void {
                 "-device", "usb-kbd",
                 "-device", "usb-mouse",
                 "-drive", "if=pflash,unit=0,format=raw,file=ovmf/ovmf-code-aarch64.fd,readonly=on",
-            } ++ qemu_args);
+            } ++ base_qemu_args);
         },
         .riscv64 => {
             const Feature = std.Target.riscv.Feature;
@@ -80,7 +89,7 @@ pub fn build(b: *std.Build) void {
                 "-device", "usb-kbd",
                 "-device", "usb-mouse",
                 "-drive", "if=pflash,unit=0,format=raw,file=ovmf/ovmf-code-riscv64.fd,readonly=on",
-            } ++ qemu_args);
+            } ++ base_qemu_args);
         },
         else => std.debug.panic("Unsupported architecture: {s}", .{@tagName(arch)}),
     }
@@ -115,7 +124,15 @@ pub fn build(b: *std.Build) void {
 
     const limine = addLimineSteps(b, &limine_clone.step, b.getInstallStep(), xorriso_cmdline);
 
-    addQemuSteps(b, limine, qemu_cmdline);
+    const other_args: []const []const u8 = switch (optimize) {
+        .Debug => &qemu_debug_args,
+        else => &.{},
+    };
+
+    const qemu_args = try std.mem.concat(allocator, []const u8, &.{qemu_cmdline, other_args});
+    defer allocator.free(qemu_args);
+
+    addQemuSteps(b, limine, qemu_args);
 }
 
 fn addLimineSteps(b: *std.Build, clone_step: *Step, build_step: *Step, xorriso_cmdline: []const []const u8) *Step {
