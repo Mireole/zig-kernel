@@ -1,7 +1,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const limine = @import("limine.zig");
 
 inline fn hcf() noreturn {
+    // Loop forever (until interrupted)
     while (true) {
         switch (builtin.cpu.arch) {
             .x86_64 => asm volatile ("hlt"),
@@ -18,5 +20,13 @@ export fn _start() noreturn {
 }
 
 fn kmain() noreturn {
+    limine.preventOptimizations();
+
+    if (!limine.limineBaseRevisionSupported()) {
+        hcf();
+    }
+
+    limine.drawLine();
+
     hcf();
 }

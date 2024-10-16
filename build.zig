@@ -3,7 +3,12 @@ const builtin = @import("builtin");
 
 const qemu_args = .{
     "-cdrom", "sanity.iso",
+    // Debugging
+    "-s", // Enable the gdb stub
+    "-S", // Start on paused state
 };
+
+const Step = std.Build.Step;
 
 pub fn build(b: *std.Build) void {
     const arch = b.option(std.Target.Cpu.Arch, "arch", "The target kernel architecture") orelse .x86_64;
@@ -97,16 +102,23 @@ pub fn build(b: *std.Build) void {
     const kernel_step = b.step("kernel", "Build the kernel");
     kernel_step.dependOn(&kernel.step);
 
-    const limine = addLimineSteps(b, b.getInstallStep(), xorriso_cmdline);
+    const limine_clone = b.addSystemCommand(
+        &.{"./scripts/limine_clone.sh"}
+    );
+    const translate_header = b.addTranslateC(.{
+        .root_source_file = b.path("limine/limine.h"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const limine_module = translate_header.addModule("limine");
+    kernel.root_module.addImport("limine", limine_module);
+
+    const limine = addLimineSteps(b, &limine_clone.step, b.getInstallStep(), xorriso_cmdline);
 
     addQemuSteps(b, limine, qemu_cmdline);
 }
 
-fn addLimineSteps(b: *std.Build, build_step: *std.Build.Step, xorriso_cmdline: []const []const u8) *std.Build.Step {
-    const limine_clone = b.addSystemCommand(
-        &.{"./scripts/limine_clone.sh"}
-    );
-
+fn addLimineSteps(b: *std.Build, clone_step: *Step, build_step: *Step, xorriso_cmdline: []const []const u8) *Step {
     const limine_build = b.addExecutable(.{
         .name = "limine",
         .target = b.host,
@@ -116,7 +128,7 @@ fn addLimineSteps(b: *std.Build, build_step: *std.Build.Step, xorriso_cmdline: [
     limine_build.addCSourceFiles(
         .{ .files = &.{"limine/limine.c"} }
     );
-    limine_build.step.dependOn(&limine_clone.step);
+    limine_build.step.dependOn(clone_step);
 
     const xorriso = b.addSystemCommand(xorriso_cmdline);
     xorriso.step.dependOn(build_step);
@@ -132,7 +144,7 @@ fn addLimineSteps(b: *std.Build, build_step: *std.Build.Step, xorriso_cmdline: [
     return &limine_run.step;
 }
 
-fn addQemuSteps(b: *std.Build, limine_step: *std.Build.Step, qemu_cmdline: []const []const u8) void {
+fn addQemuSteps(b: *std.Build, limine_step: *Step, qemu_cmdline: []const []const u8) void {
     const ovmf = b.addSystemCommand(&.{ "./scripts/fetch_ovmf.sh" });
     const ovmf_step = b.step("ovmf", "Fetch OVMF");
     ovmf_step.dependOn(&ovmf.step);
