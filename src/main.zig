@@ -3,11 +3,6 @@ const builtin = @import("builtin");
 
 pub const limine = @import("limine.zig");
 
-pub const runtime_safety = switch (builtin.mode) {
-    .Debug, .ReleaseSafe => true,
-    .ReleaseFast, .ReleaseSmall => false,
-};
-
 inline fn hcf() noreturn {
     // Loop forever (until interrupted)
     while (true) {

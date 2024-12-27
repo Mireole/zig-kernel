@@ -2,8 +2,6 @@ const builtin = @import("builtin");
 const limine = @import("limine");
 const std = @import("std");
 
-const runtime_safety = @import("root").runtime_safety;
-
 // 4GiB
 const hhdm_size = 0x1_0000_0000;
 
@@ -85,12 +83,7 @@ pub fn drawLine() void {
 
 pub inline fn toVirtualAddress(T: type, val: *T) *T {
     const phys_addr: usize = @intFromPtr(val);
-    if (runtime_safety) {
-        if (phys_addr >= hhdm_size) {
-            @branchHint(.cold);
-            @panic("Physical address too large to be contained in the HHDM") ;
-        }
-    }
+    std.debug.assert(phys_addr < hhdm_size);
     const virt_addr: usize = phys_addr + hhdm_start;
     return @ptrFromInt(virt_addr);
 }
