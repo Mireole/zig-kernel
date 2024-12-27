@@ -2,7 +2,6 @@ zig-cache/
 .zig-cache/
 .idea/
 zig-out/
-build/
 build-*/
 docgen_tmp/
 iso_root/

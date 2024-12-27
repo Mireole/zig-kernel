@@ -1,17 +1,22 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+const Xorriso = @import("build/steps/Xorriso.zig");
+
 const base_qemu_args = .{
-    "-cdrom", "sanity.iso",
-    "-serial", "stdio",
+    "-serial", "file:logs/serial.log",
+    "-daemonize",
 };
 
 const qemu_debug_args = .{
     "-s", // Enable the gdb stub
     "-S", // Start on paused state
+    "-D", "logs/qemu.log", // Log to logs/qemu.log
+    "-d", "int,page,cpu_reset,mmu,guest_errors", // Log useful info
 };
 
 const Step = std.Build.Step;
+const Dependency = std.Build.Dependency;
 
 pub fn build(b: *std.Build) !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
@@ -31,7 +36,6 @@ pub fn build(b: *std.Build) !void {
         .abi = .none,
     };
 
-    var xorriso_cmdline: []const []const u8 = undefined;
     var qemu_cmdline: []const []const u8 = undefined;
 
     switch (arch) {
@@ -46,8 +50,7 @@ pub fn build(b: *std.Build) !void {
             target_query.cpu_features_sub.addFeature(@intFromEnum(Feature.avx2));
 
             code_model = .kernel;
-            linker_script_path = b.path("linker-x86_64.ld");
-            xorriso_cmdline = &.{ "./scripts/xorriso-x86_64.sh" };
+            linker_script_path = b.path("build/linker-x86_64.ld");
             qemu_cmdline = &(.{
                 "qemu-system-x86_64",
                 "-M", "q35",
@@ -61,8 +64,7 @@ pub fn build(b: *std.Build) !void {
             target_query.cpu_features_sub.addFeature(@intFromEnum(Feature.crypto));
             target_query.cpu_features_sub.addFeature(@intFromEnum(Feature.neon));
 
-            linker_script_path = b.path("linker-aarch64.ld");
-            xorriso_cmdline = &.{ "./scripts/xorriso-aarch64.sh" };
+            linker_script_path = b.path("build/linker-aarch64.ld");
             qemu_cmdline = &(.{
                 "qemu-system-aarch64",
                 "-M", "virt",
@@ -79,8 +81,7 @@ pub fn build(b: *std.Build) !void {
 
             target_query.cpu_features_sub.addFeature(@intFromEnum(Feature.d));
 
-            linker_script_path = b.path("linker-riscv64.ld");
-            xorriso_cmdline = &.{ "./scripts/xorriso-riscv64.sh" };
+            linker_script_path = b.path("build/linker-riscv64.ld");
             qemu_cmdline = &(.{
                 "qemu-system-riscv64",
                 "-M", "virt",
@@ -112,18 +113,23 @@ pub fn build(b: *std.Build) !void {
     const kernel_step = b.step("kernel", "Build the kernel");
     kernel_step.dependOn(&kernel.step);
 
-    const limine_clone = b.addSystemCommand(
-        &.{"./scripts/limine_clone.sh"}
-    );
-    const translate_header = b.addTranslateC(.{
-        .root_source_file = b.path("limine/limine.h"),
+    var limine_dep = b.dependency("limine", .{
         .target = target,
         .optimize = optimize,
+    });
+
+    const translate_header = b.addTranslateC(.{
+        .root_source_file = limine_dep.path("limine.h"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = false,
     });
     const limine_module = translate_header.addModule("limine");
     kernel.root_module.addImport("limine", limine_module);
 
-    const limine = addLimineSteps(b, &limine_clone.step, b.getInstallStep(), xorriso_cmdline);
+    const xorriso = Xorriso.create(b, arch, kernel, limine_dep);
+
+    const limine = addLimineSteps(b, limine_dep, xorriso);
 
     const other_args: []const []const u8 = switch (optimize) {
         .Debug => &qemu_debug_args,
@@ -133,41 +139,38 @@ pub fn build(b: *std.Build) !void {
     const qemu_args = try std.mem.concat(allocator, []const u8, &.{qemu_cmdline, other_args});
     defer allocator.free(qemu_args);
 
-    addQemuSteps(b, limine, qemu_args);
+    addQemuSteps(b, limine, xorriso, qemu_args);
 }
 
-fn addLimineSteps(b: *std.Build, clone_step: *Step, build_step: *Step, xorriso_cmdline: []const []const u8) *Step {
+fn addLimineSteps(b: *std.Build, dep: *Dependency, xorriso_step: *Xorriso) *Step {
     const limine_build = b.addExecutable(.{
         .name = "limine",
         .target = b.host,
         .optimize = .ReleaseSafe,
     });
     limine_build.linkLibC();
-    limine_build.addCSourceFiles(
-        .{ .files = &.{"limine/limine.c"} }
-    );
-    limine_build.step.dependOn(clone_step);
-
-    const xorriso = b.addSystemCommand(xorriso_cmdline);
-    xorriso.step.dependOn(build_step);
-    xorriso.step.dependOn(&limine_build.step);
+    limine_build.addCSourceFiles(.{ .files = &.{"limine.c"}, .root = dep.path("") });
 
     const limine_run = b.addRunArtifact(limine_build);
-    limine_run.addArgs(&.{"bios-install", "sanity.iso"});
+    limine_run.addArg("bios-install");
+    limine_run.addFileArg(xorriso_step.output_path);
+
     limine_run.step.dependOn(&limine_build.step);
-    limine_run.step.dependOn(&xorriso.step);
+    limine_run.step.dependOn(&xorriso_step.step);
 
     const limine_step = b.step("limine", "Setup limine");
     limine_step.dependOn(&limine_run.step);
     return &limine_run.step;
 }
 
-fn addQemuSteps(b: *std.Build, limine_step: *Step, qemu_cmdline: []const []const u8) void {
+fn addQemuSteps(b: *std.Build, limine_step: *Step, xorriso: *Xorriso, qemu_cmdline: []const []const u8) void {
     const ovmf = b.addSystemCommand(&.{ "./scripts/fetch_ovmf.sh" });
     const ovmf_step = b.step("ovmf", "Fetch OVMF");
     ovmf_step.dependOn(&ovmf.step);
 
     const qemu = b.addSystemCommand(qemu_cmdline);
+    qemu.addArg("-cdrom");
+    qemu.addFileArg(xorriso.output_path);
     qemu.step.dependOn(limine_step);
 
     const qemu_step = b.step("qemu", "Run in QEMU");
