@@ -176,6 +176,10 @@ fn addQemuSteps(b: *std.Build, limine_step: *Step, xorriso: *Xorriso, qemu_cmdli
     const qemu_step = b.step("qemu", "Run in QEMU");
     qemu_step.dependOn(&qemu.step);
 
+    const qemu_install_step = b.step("qemu-install", "Run in QEMU and output the ELF");
+    qemu_install_step.dependOn(&qemu.step);
+    qemu_install_step.dependOn(b.getInstallStep());
+
     // Fetch ovmf if the ovmf directory does not exist
     _ = b.build_root.handle.openDir("ovmf", .{}) catch qemu_step.dependOn(&ovmf.step);
 }
