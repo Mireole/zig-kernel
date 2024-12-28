@@ -9,9 +9,9 @@ const hhdm_size = 0x1_0000_0000;
 
 const limine_common_magic: [2]u64 = .{ 0xc7b1dd30df4c8b88, 0x0a82e883a194f07b };
 
-// Equivalent to LIMINE_BASE_REVISION(2)
+// Equivalent to LIMINE_BASE_REVISION(3)
 export var limine_base_revision linksection(".requests") = @as([3]u64,
-    .{ 0xf9562b2d5c95a6c8, 0x6a7b384944536bdc, 2 }
+    .{ 0xf9562b2d5c95a6c8, 0x6a7b384944536bdc, 3 }
 );
 
 // LIMINE_REQUESTS_START_MARKER
@@ -44,6 +44,18 @@ export var kernel_address_request linksection(".requests") = limine.limine_kerne
     .revision = 0,
 };
 
+// RSDP request
+export var rsdp_request linksection(".requests") = limine.limine_rsdp_request{
+    .id = limine_common_magic ++ .{ 0xc5e77b6b397e7b43, 0x27637845accdcf3c },
+    .revision = 0,
+};
+
+// Device tree request
+export var dtb_request linksection(".requests") = limine.limine_dtb_request{
+    .id = limine_common_magic ++ .{ 0xb40ddb48fb54bac7, 0x545081493f81ffb7 },
+    .revision = 0,
+};
+
 pub fn initialize() void{
     preventOptimizations();
 
@@ -62,6 +74,8 @@ fn preventOptimizations() void {
     std.mem.doNotOptimizeAway(framebuffer_request);
     std.mem.doNotOptimizeAway(hhdm_request);
     std.mem.doNotOptimizeAway(kernel_address_request);
+    std.mem.doNotOptimizeAway(rsdp_request);
+    std.mem.doNotOptimizeAway(dtb_request);
 }
 
 pub inline fn limineBaseRevisionSupported() bool {
