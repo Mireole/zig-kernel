@@ -99,12 +99,16 @@ pub fn build(b: *std.Build) !void {
     const target = b.resolveTargetQuery(target_query);
     const optimize = b.standardOptimizeOption(.{});
 
-    const kernel = b.addExecutable(.{
-        .name = "sanity.elf",
+    const kernel_module = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
         .code_model = code_model,
+    });
+
+    const kernel = b.addExecutable(.{
+        .name = "sanity.elf",
+        .root_module = kernel_module,
     });
 
     kernel.setLinkerScript(linker_script_path);
@@ -143,10 +147,13 @@ pub fn build(b: *std.Build) !void {
 }
 
 fn addLimineSteps(b: *std.Build, dep: *Dependency, xorriso_step: *Xorriso) *Step {
+    const module = b.createModule(.{
+        .target = b.graph.host,
+        .optimize = .ReleaseSafe,
+    });
     const limine_build = b.addExecutable(.{
         .name = "limine",
-        .target = b.host,
-        .optimize = .ReleaseSafe,
+        .root_module = module,
     });
     limine_build.linkLibC();
     limine_build.addCSourceFiles(.{ .files = &.{"limine.c"}, .root = dep.path("") });
@@ -154,6 +161,7 @@ fn addLimineSteps(b: *std.Build, dep: *Dependency, xorriso_step: *Xorriso) *Step
     const limine_run = b.addRunArtifact(limine_build);
     limine_run.addArg("bios-install");
     limine_run.addFileArg(xorriso_step.output_path);
+    _ = b.addInstallFile(xorriso_step.output_path, "sanity.iso");
 
     limine_run.step.dependOn(&limine_build.step);
     limine_run.step.dependOn(&xorriso_step.step);
