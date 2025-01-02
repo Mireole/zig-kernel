@@ -1,6 +1,12 @@
 const builtin = @import("builtin");
 const limine = @import("limine");
 const std = @import("std");
+const root = @import("root");
+
+const PhysAddr = root.types.PhysAddr;
+
+pub var rsdp: ?PhysAddr = null;
+var hhdm_start: usize = undefined;
 
 // 4GiB
 const hhdm_size = 0x1_0000_0000;
@@ -9,7 +15,7 @@ const hhdm_size = 0x1_0000_0000;
 
 const limine_common_magic: [2]u64 = .{ 0xc7b1dd30df4c8b88, 0x0a82e883a194f07b };
 
-// Equivalent to LIMINE_BASE_REVISION(3)
+// LIMINE_BASE_REVISION(3)
 export var limine_base_revision linksection(".requests") = @as([3]u64,
     .{ 0xf9562b2d5c95a6c8, 0x6a7b384944536bdc, 3 }
 );
@@ -36,10 +42,9 @@ export var hhdm_request linksection(".requests") = limine.limine_hhdm_request{
     .id = limine_common_magic ++ .{ 0x48dcf1cb8ad2b852, 0x63984e959a98244b },
     .revision = 0,
 };
-var hhdm_start: u64 = undefined;
 
 // Kernel address
-export var kernel_address_request linksection(".requests") = limine.limine_kernel_address_request{
+export var executable_address_request linksection(".requests") = limine.limine_executable_address_request{
     .id = limine_common_magic ++ .{ 0x71ba76863cc55f63, 0xb2644a48c516a487 },
     .revision = 0,
 };
@@ -56,16 +61,28 @@ export var dtb_request linksection(".requests") = limine.limine_dtb_request{
     .revision = 0,
 };
 
+// Multiprocessor request
+export var mp_request linksection(".requests") = limine.limine_mp_request{
+    .id = limine_common_magic ++ .{ 0x95a67b819a1b857e, 0xa0b61b723b6a73e0 },
+    .revision = 0,
+};
+
 pub fn initialize() void{
     preventOptimizations();
 
     // HHDM start
     if (hhdm_request.response == null) @panic("Cannot retrieve the HHDM start address");
     hhdm_start = hhdm_request.response.*.offset;
+
+    if (rsdp_request.response) |response| {
+        rsdp = PhysAddr.from(response.*.address);
+        const err = root.acpi.initialize(0);
+        _ = err catch root.hcf();
+    }
 }
 
 fn preventOptimizations() void {
-    // Without these lines the compiler removes our markers and requests
+    // Without these lines the compiler might remove our markers and requests
     // Markers
     std.mem.doNotOptimizeAway(limine_base_revision);
     std.mem.doNotOptimizeAway(limine_requests_start_marker);
@@ -73,9 +90,10 @@ fn preventOptimizations() void {
     // Requests
     std.mem.doNotOptimizeAway(framebuffer_request);
     std.mem.doNotOptimizeAway(hhdm_request);
-    std.mem.doNotOptimizeAway(kernel_address_request);
+    std.mem.doNotOptimizeAway(executable_address_request);
     std.mem.doNotOptimizeAway(rsdp_request);
     std.mem.doNotOptimizeAway(dtb_request);
+    std.mem.doNotOptimizeAway(mp_request);
 }
 
 pub inline fn limineBaseRevisionSupported() bool {
@@ -96,8 +114,8 @@ pub fn drawLine() void {
 }
 
 pub inline fn toVirtualAddress(T: type, val: *T) *T {
-    const phys_addr: usize = @intFromPtr(val);
-    std.debug.assert(phys_addr < hhdm_size);
-    const virt_addr: usize = phys_addr + hhdm_start;
-    return @ptrFromInt(virt_addr);
+    var phys = PhysAddr.from(val);
+    std.debug.assert(phys.v < hhdm_size);
+    phys.v += hhdm_start;
+    return phys.to(*T);
 }

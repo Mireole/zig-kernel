@@ -2,8 +2,15 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 pub const limine = @import("limine.zig");
+pub const types = @import("types.zig");
+pub const acpi = @import("acpi/acpi.zig");
+pub const smp = @import("smp/smp.zig");
 
-inline fn hcf() noreturn {
+comptime {
+    _ = acpi;
+}
+
+pub fn hcf() noreturn {
     // Loop forever (until interrupted)
     while (true) {
         switch (builtin.cpu.arch) {

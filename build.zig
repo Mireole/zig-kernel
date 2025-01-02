@@ -6,6 +6,7 @@ const Xorriso = @import("build/steps/Xorriso.zig");
 const base_qemu_args = .{
     "-serial", "file:logs/serial.log",
     "-daemonize",
+    "-smp", "2",
 };
 
 const qemu_debug_args = .{
@@ -117,6 +118,7 @@ pub fn build(b: *std.Build) !void {
     const kernel_step = b.step("kernel", "Build the kernel");
     kernel_step.dependOn(&kernel.step);
 
+    // Limine
     var limine_dep = b.dependency("limine", .{
         .target = target,
         .optimize = optimize,
@@ -128,8 +130,14 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
         .link_libc = false,
     });
+    translate_header.defineCMacro("LIMINE_API_REVISION", "2");
+
     const limine_module = translate_header.addModule("limine");
     kernel.root_module.addImport("limine", limine_module);
+
+    // uACPI zig wrapper
+    const uacpi = b.dependency("uacpi", .{}).module("uacpi");
+    kernel.root_module.addImport("uacpi", uacpi);
 
     const xorriso = Xorriso.create(b, arch, kernel, limine_dep);
 
@@ -161,7 +169,9 @@ fn addLimineSteps(b: *std.Build, dep: *Dependency, xorriso_step: *Xorriso) *Step
     const limine_run = b.addRunArtifact(limine_build);
     limine_run.addArg("bios-install");
     limine_run.addFileArg(xorriso_step.output_path);
-    _ = b.addInstallFile(xorriso_step.output_path, "sanity.iso");
+    const install = b.addInstallFile(xorriso_step.output_path, "sanity.iso");
+    install.step.dependOn(&limine_run.step);
+    b.getInstallStep().dependOn(&install.step);
 
     limine_run.step.dependOn(&limine_build.step);
     limine_run.step.dependOn(&xorriso_step.step);

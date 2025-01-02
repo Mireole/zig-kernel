@@ -27,6 +27,10 @@
             .url = "git+https://github.com/limine-bootloader/limine?ref=v8.x-binary#4ccea35dbb35a6fef17985bf56d655ff366e1f27",
             .hash = "1220533e700e69d712c0a656739b83a5aa50c1ad1ee7b05781ca1ee97e28457d0807",
         },
+        // TODO Publish this on github...
+        .uacpi = .{
+            .path = "../../zig-projects/zig-uacpi/",
+        },
     },
     .paths = .{
         "build.zig",
