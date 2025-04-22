@@ -7,13 +7,14 @@ const base_qemu_args = .{
     "-serial", "file:logs/serial.log",
     "-daemonize",
     "-smp", "2",
+    "-D", "logs/qemu.log", // Log to logs/qemu.log
+    "-m", "4G",
 };
 
 const qemu_debug_args = .{
     "-s", // Enable the gdb stub
     "-S", // Start on paused state
-    "-D", "logs/qemu.log", // Log to logs/qemu.log
-    "-d", "int,page,cpu_reset,mmu,guest_errors", // Log useful info
+    "-no-reboot" // Do not restart after a triple fault
 };
 
 const Step = std.Build.Step;
@@ -56,6 +57,7 @@ pub fn build(b: *std.Build) !void {
                 "qemu-system-x86_64",
                 "-M", "q35",
                 "-drive", "if=pflash,unit=0,format=raw,file=ovmf/ovmf-code-x86_64.fd,readonly=on",
+                "-d", "int,page,cpu_reset,mmu", // Log useful info
             } ++ base_qemu_args);
         },
         .aarch64 => {
@@ -136,7 +138,9 @@ pub fn build(b: *std.Build) !void {
     kernel.root_module.addImport("limine", limine_module);
 
     // uACPI zig wrapper
-    const uacpi = b.dependency("uacpi", .{}).module("uacpi");
+    const uacpi_dep = b.dependency("uacpi", .{});
+    const uacpi = uacpi_dep.module("uacpi");
+
     kernel.root_module.addImport("uacpi", uacpi);
 
     const xorriso = Xorriso.create(b, arch, kernel, limine_dep);

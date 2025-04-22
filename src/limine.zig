@@ -4,31 +4,42 @@ const std = @import("std");
 const root = @import("root");
 
 const PhysAddr = root.types.PhysAddr;
+const VirtAddr = root.types.VirtAddr;
 
 pub var rsdp: ?PhysAddr = null;
-var hhdm_start: usize = undefined;
+pub var hhdm_start: usize = undefined;
 
 // 4GiB
-const hhdm_size = 0x1_0000_0000;
+pub const hhdm_size = 0x1_0000_0000;
 
 // The translation to zig code misses quite a few macros, therefore some of them have to be reimplemented here
 
 const limine_common_magic: [2]u64 = .{ 0xc7b1dd30df4c8b88, 0x0a82e883a194f07b };
 
 // LIMINE_BASE_REVISION(3)
-export var limine_base_revision linksection(".requests") = @as([3]u64,
-    .{ 0xf9562b2d5c95a6c8, 0x6a7b384944536bdc, 3 }
-);
+// The extern struct type is needed to make sure that the compiler doesn't optimize away the markers
+const base_revision = extern struct {
+    value: [3]u64,
+};
+export var limine_base_revision linksection(".requests") = base_revision{
+    .value = .{ 0xf9562b2d5c95a6c8, 0x6a7b384944536bdc, 3 },
+};
 
 // LIMINE_REQUESTS_START_MARKER
-export var limine_requests_start_marker linksection(".requests_start_marker") = @as([4]u64,
-    .{ 0xf6b8f4b39de7d1ae, 0xfab91a6940fcb9cf, 0x785c6ed015d3e316, 0x181e920a7852b9d9 }
-);
+const requests_start_marker = extern struct {
+    value: [4]u64,
+};
+export var limine_requests_start_marker linksection(".requests_start_marker") = requests_start_marker{
+    .value = .{ 0xf6b8f4b39de7d1ae, 0xfab91a6940fcb9cf, 0x785c6ed015d3e316, 0x181e920a7852b9d9 },
+};
 
 // LIMINE_REQUESTS_END_MARKER
-export var limine_requests_end_marker linksection(".requests_end_marker") = @as([2]u64,
-    .{ 0xadc0e0531bb10d03, 0x9572709f31764c62 }
-);
+const requests_end_marker = extern struct {
+    value: [2]u64,
+};
+export var limine_requests_end_marker linksection(".requests_end_marker") = requests_end_marker{
+    .value = .{ 0xadc0e0531bb10d03, 0x9572709f31764c62 },
+};
 
 // Requests
 // Framebuffer request
@@ -43,7 +54,7 @@ export var hhdm_request linksection(".requests") = limine.limine_hhdm_request{
     .revision = 0,
 };
 
-// Kernel address
+// Kernel address request
 export var executable_address_request linksection(".requests") = limine.limine_executable_address_request{
     .id = limine_common_magic ++ .{ 0x71ba76863cc55f63, 0xb2644a48c516a487 },
     .revision = 0,
@@ -67,17 +78,38 @@ export var mp_request linksection(".requests") = limine.limine_mp_request{
     .revision = 0,
 };
 
-pub fn initialize() void{
+// Memory map request
+export var memmap_request linksection(".requests") = limine.limine_memmap_request{
+    .id = limine_common_magic ++ .{ 0x67cf3d9d378a806f, 0xe304acdfc50c3c62 },
+    .revision = 0,
+};
+
+pub const MemmapType = enum(u32) {
+    Usable = limine.LIMINE_MEMMAP_USABLE,
+    Reserved = limine.LIMINE_MEMMAP_RESERVED,
+    AcpiReclaimable = limine.LIMINE_MEMMAP_ACPI_RECLAIMABLE,
+    AcpiNVS = limine.LIMINE_MEMMAP_ACPI_NVS,
+    BadMemory = limine.LIMINE_MEMMAP_BAD_MEMORY,
+    BootloaderReclaimable = limine.LIMINE_MEMMAP_BOOTLOADER_RECLAIMABLE,
+    ExecutableAndModules = limine.LIMINE_MEMMAP_EXECUTABLE_AND_MODULES,
+    Framebuffer = limine.LIMINE_MEMMAP_FRAMEBUFFER,
+};
+
+pub fn init() void{
     preventOptimizations();
 
     // HHDM start
-    if (hhdm_request.response == null) @panic("Cannot retrieve the HHDM start address");
-    hhdm_start = hhdm_request.response.*.offset;
+    const hhdm_request_ptr: *volatile limine.limine_hhdm_request = @ptrCast(&hhdm_request);
+    const hhdm_response = hhdm_request_ptr.response;
+    if (hhdm_response == null) {
+        @panic("Cannot retrieve the HHDM start address");
+    }
+    hhdm_start = hhdm_response.*.offset;
 
-    if (rsdp_request.response) |response| {
+    const rsdp_request_ptr: *volatile limine.limine_rsdp_request = @ptrCast(&rsdp_request);
+    const rsdp_response = rsdp_request_ptr.response;
+    if (rsdp_response) |response| {
         rsdp = PhysAddr.from(response.*.address);
-        const err = root.acpi.initialize(0);
-        _ = err catch root.hcf();
     }
 }
 
@@ -94,28 +126,36 @@ fn preventOptimizations() void {
     std.mem.doNotOptimizeAway(rsdp_request);
     std.mem.doNotOptimizeAway(dtb_request);
     std.mem.doNotOptimizeAway(mp_request);
+    std.mem.doNotOptimizeAway(memmap_request);
 }
 
 pub inline fn limineBaseRevisionSupported() bool {
     // Implementation of the LIMINE_BASE_REVISION_SUPPORTED macro
-    return limine_base_revision[2] == 0;
+    const ptr: *const volatile [3]u64 = @ptrCast(&limine_base_revision);
+    return ptr[2] == 0;
 }
 
-pub fn drawLine() void {
+pub noinline fn drawLine(offset: usize) void {
+    const framebuffer_request_ptr: *volatile limine.limine_framebuffer_request = @ptrCast(&framebuffer_request);
+    const response = framebuffer_request_ptr.response;
     // The framebuffer needs to use 32 bits per pixel for this code to work as intended
-    if (framebuffer_request.response == null or framebuffer_request.response.*.framebuffer_count < 1) return;
+    if (response == null or response.*.framebuffer_count < 1) return;
 
-    const framebuffer = framebuffer_request.response.*.framebuffers[0];
+    const framebuffer = response.*.framebuffers[0];
 
     for (0..100) |i| {
         const fb_ptr: [*]volatile u32 = @alignCast(@ptrCast(framebuffer.*.address));
-        fb_ptr[i * (framebuffer.*.pitch / 4) + i] = 0xffffffff;
+        fb_ptr[i * (framebuffer.*.pitch / 4) + i + offset] = 0xffffffff;
     }
 }
 
-pub inline fn toVirtualAddress(T: type, val: *T) *T {
-    var phys = PhysAddr.from(val);
+pub fn getMemoryMap() limine.limine_memmap_response {
+    const memmap_request_ptr: *volatile limine.limine_memmap_request = @ptrCast(&memmap_request);
+    return memmap_request_ptr.response.*;
+}
+
+pub inline fn get(phys: PhysAddr) VirtAddr {
     std.debug.assert(phys.v < hhdm_size);
-    phys.v += hhdm_start;
-    return phys.to(*T);
+    const address = phys.v + hhdm_start;
+    return VirtAddr.from(address);
 }

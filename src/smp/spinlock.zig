@@ -9,7 +9,7 @@ pub const Spinlock = packed struct(CacheLine) {
     pub fn lock(self: *Spinlock) void {
         const flag: *bool = @ptrCast(self);
         while (flag.* or @cmpxchgWeak(bool, flag, false, true, .acquire, .monotonic) == null) {
-            std.atomic.spinLoopHint ();
+            std.atomic.spinLoopHint();
         }
     }
 

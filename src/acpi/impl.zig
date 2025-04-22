@@ -99,8 +99,8 @@ fn handleFirmwareRequest(_: uacpi.FirmwareRequest) Error!void {
     return Error.Uninplemented;
 }
 
-fn log(_: uacpi.LogLevel, _: [*:0]const u8) void {
-
+fn log(_: uacpi.LogLevel, message: [*:0]const u8) void {
+    _ = root.log.logFn(std.mem.span(message));
 }
 
 fn scheduleWork(_: uacpi.WorkType, _: uacpi.work_handler, _: handle) Error!void {
@@ -111,8 +111,8 @@ fn waitForWorkCompletion() Error!void {
     return Error.Uninplemented;
 }
 
-fn map(phys: uacpi.phys_addr, _: usize) ?*anyopaque {
-    return root.limine.toVirtualAddress(anyopaque, @ptrFromInt(phys));
+fn map(_: uacpi.phys_addr, _: usize) ?*anyopaque {
+    return null;
 }
 
 fn unmap(_: *anyopaque, _: usize) void {

@@ -21,4 +21,10 @@ pub const PhysAddr = packed struct(usize) {
             else => @compileError("Can't convert a PhysAddr to a " ++ @typeName(T)),
         }
     }
+
+    pub inline fn get(addr: PhysAddr, T: type) T {
+        return @as(*T, @ptrFromInt(addr.v)).*;
+    }
 };
+
+pub const VirtAddr = PhysAddr;
