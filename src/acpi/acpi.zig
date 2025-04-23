@@ -1,8 +1,17 @@
 const std = @import("std");
-const uacpi = @import("uacpi");
+const zuacpi = @import("zuacpi");
 
-pub const initialize = uacpi.initialize;
+const impl = @import("impl.zig");
+
+const uacpi = zuacpi.uacpi;
+
+// TODO use a real allocator
+var buffer: [32768]u8 = undefined;
+var fba = std.heap.FixedBufferAllocator.init(&buffer);
+pub const allocator = fba.threadSafeAllocator();
 
 comptime {
-    _ = @import("impl.zig");
+    _ = impl;
 }
+
+pub const initialize = uacpi.initialize;

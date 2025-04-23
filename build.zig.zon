@@ -29,9 +29,9 @@
             .url = "git+https://github.com/limine-bootloader/limine?ref=v8.x-binary#4ccea35dbb35a6fef17985bf56d655ff366e1f27",
             .hash = "1220533e700e69d712c0a656739b83a5aa50c1ad1ee7b05781ca1ee97e28457d0807",
         },
-        // TODO Publish this on github...
-        .uacpi = .{
-            .path = "../../zig-projects/zig-uacpi/",
+        .zuacpi = .{
+            .url = "git+https://github.com/uACPI/zuacpi?ref=main#54b086989be8bed3f13b112837537cb122fa4998",
+            .hash = "zuacpi-0.0.0--wIHKAqeAAD2Cp8HoMmMT1sdojGBcH2yujB_zvC5C98k",
         },
     },
     .paths = .{

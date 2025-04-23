@@ -137,11 +137,15 @@ pub fn build(b: *std.Build) !void {
     const limine_module = translate_header.addModule("limine");
     kernel.root_module.addImport("limine", limine_module);
 
-    // uACPI zig wrapper
-    const uacpi_dep = b.dependency("uacpi", .{});
-    const uacpi = uacpi_dep.module("uacpi");
+    // Zuacpi
+    const zuacpi = b.dependency("zuacpi", .{
+        .log_level = .info,
+        .override_arch_helpers = false,
+    });
 
-    kernel.root_module.addImport("uacpi", uacpi);
+    const zuacpi_module = zuacpi.module("zuacpi");
+
+    kernel.root_module.addImport("zuacpi", zuacpi_module);
 
     const xorriso = Xorriso.create(b, arch, kernel, limine_dep);
 

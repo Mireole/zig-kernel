@@ -1,14 +1,18 @@
 const std = @import("std");
-const uacpi = @import("uacpi");
+const zuacpi = @import("zuacpi");
 const root = @import("root");
 
 const limine = root.limine;
+const uacpi = zuacpi.uacpi;
+const acpi = root.acpi;
 
 const Error = uacpi.Error;
-const handle = uacpi.handle;
 const Spinlock = root.smp.Spinlock;
+// TODO use real Mutexes
+const Mutex = Spinlock;
 
-var allocator: std.mem.Allocator = undefined;
+var allocator = acpi.allocator;
+const status = uacpi.uacpi_status;
 
 // Very simple impl TODO use a semaphore once mutexes are implemented
 const Event = struct {
@@ -16,8 +20,8 @@ const Event = struct {
     count: usize = 0,
 
     fn wait(event: *Event, _: u16) bool {
-        event.lock.lock();
-        defer event.lock.unlock();
+        event.lock.lock_interruptible();
+        defer event.lock.unlock_interruptible();
 
         while (@atomicLoad(usize, &event.count, .unordered) == 0) {
             std.atomic.spinLoopHint();
@@ -33,168 +37,178 @@ const Event = struct {
     }
 
     fn reset(event: *Event) void {
-        event.lock.lock();
-        defer event.lock.unlock();
+        event.lock.lock_interruptible();
+        defer event.lock.unlock_interruptible();
 
         @atomicStore(usize, &event.count, 0, .release);
     }
 };
 
-fn getNanosecondsSinceBoot() u64 {
-    return 0;
+export fn uacpi_kernel_create_mutex() ?*Mutex {
+    return allocator.create(Mutex) catch null;
 }
 
-fn getRsdp() Error!uacpi.phys_addr {
-    if (limine.rsdp) |rsdp| {
-        return rsdp.to(uacpi.phys_addr);
-    }
-    return Error.Uninplemented;
+export fn uacpi_kernel_free_mutex(mutex: *Mutex) void {
+    allocator.destroy(mutex);
 }
 
-fn createSpinlock() ?*Spinlock {
-    return allocator.create(Spinlock) catch null;
+export fn uacpi_kernel_acquire_mutex(mutex: *Mutex, _: u16) status {
+    mutex.lock_interruptible();
+    return .ok;
 }
 
-fn freeSpinlock(spinlock: *Spinlock) void {
-    allocator.destroy(spinlock);
+export fn uacpi_kernel_release_mutex(mutex: *Mutex) void {
+    mutex.unlock_interruptible();
 }
 
-fn lockSpinlock(spinlock: *Spinlock) void {
-    spinlock.lock();
-}
-
-fn unlockSpinlock(spinlock: *Spinlock) void {
-    spinlock.unlock();
-}
-
-fn lockSpinlockTimeout(spinlock: *Spinlock, _: u16) Error!void {
-    spinlock.lock();
-}
-
-fn createEvent() ?*Event {
+export fn uacpi_kernel_create_event() ?*Event {
     return allocator.create(Event) catch null;
 }
 
-fn freeEvent(event: *Event) void {
+export fn uacpi_kernel_free_event(event: *Event) void {
     allocator.destroy(event);
 }
 
-fn sleep(_: u64) void {
-
+export fn uacpi_kernel_wait_for_event(event: *Event, timeout: u16) bool {
+    return event.wait(timeout);
 }
 
-fn getThreadId() usize {
-    return 0;
+export fn uacpi_kernel_signal_event(event: *Event) void {
+    event.signal();
 }
 
-fn installInterruptHandler(_: u32, _: uacpi.interrupt_handler, _: handle) Error!handle {
-    return Error.Uninplemented;
+export fn uacpi_kernel_reset_event(event: *Event) void {
+    event.reset();
 }
 
-fn uninstallInterruptHandler(_: uacpi.interrupt_handler, _: handle) Error!void {
-    return Error.Uninplemented;
-}
-
-fn handleFirmwareRequest(_: uacpi.FirmwareRequest) Error!void {
-    return Error.Uninplemented;
-}
-
-fn log(_: uacpi.LogLevel, message: [*:0]const u8) void {
-    _ = root.log.logFn(std.mem.span(message));
-}
-
-fn scheduleWork(_: uacpi.WorkType, _: uacpi.work_handler, _: handle) Error!void {
-    return Error.Uninplemented;
-}
-
-fn waitForWorkCompletion() Error!void {
-    return Error.Uninplemented;
-}
-
-fn map(_: uacpi.phys_addr, _: usize) ?*anyopaque {
+export fn uacpi_kernel_map(_: usize, _: usize) ?*anyopaque {
     return null;
 }
 
-fn unmap(_: *anyopaque, _: usize) void {
+export fn uacpi_kernel_unmap(_: *anyopaque, _: usize) void {
 
 }
 
-fn pciDeviceOpen(_: uacpi.pci_address) Error!handle {
-    return Error.Uninplemented;
+export fn uacpi_kernel_io_map(_: uacpi.IoAddress, _: usize, _: *anyopaque) status {
+    return .unimplemented;
 }
 
-fn pciDeviceClose(_: handle) void {
-
-}
-
-fn pciRead(_: *uacpi.pci_address, _: usize, _: u8) Error!u64 {
-    return Error.Uninplemented;
-}
-
-fn pciWrite(_: *uacpi.pci_address, _: usize, _: u64, _: u8) Error!void {
-    return Error.Uninplemented;
-}
-
-fn ioMap(_: uacpi.io_addr, _: usize) Error!handle {
-    return Error.Uninplemented;
-}
-
-fn ioUnmap(_: handle) void {
+export fn uacpi_kernel_io_unmap(_: *anyopaque) void {
 
 }
 
-fn ioRead(_: handle, _: usize, _: u8) Error!u64 {
-    return Error.Uninplemented;
+export fn uacpi_kernel_create_spinlock() ?*Spinlock {
+    return allocator.create(Spinlock) catch null;
 }
 
-fn ioWrite(_: uacpi.handle, _: usize, _: u64, _: u8) Error!void {
-    return Error.Uninplemented;
+export fn uacpi_kernel_free_spinlock(spinlock: *Spinlock) void {
+    allocator.destroy(spinlock);
 }
 
-const options = uacpi.ExportOptions{
-    .allocator = &allocator,
-    .Spinlock = Spinlock,
-    .Mutex = Spinlock,
-    .Event = Event,
-};
+export fn uacpi_kernel_lock_spinlock(spinlock: *Spinlock) u64 {
+    return @bitCast(spinlock.lock());
+}
 
-const functions = uacpi.FunctionImpl(options){
-    .getNanosecondsSinceBoot = getNanosecondsSinceBoot, // TODO
-    .getRsdp = getRsdp,
-    .createSpinlock = createSpinlock,
-    .freeSpinlock = freeSpinlock,
-    .lockSpinlock = lockSpinlock,
-    .unlockSpinlock = unlockSpinlock,
-    .createMutex = createSpinlock, // TODO
-    .freeMutex = freeSpinlock, // TODO
-    .acquireMutex = lockSpinlockTimeout, // TODO
-    .releaseMutex = unlockSpinlock, // TODO
-    .createEvent = createEvent,
-    .freeEvent = freeEvent,
-    .resetEvent = Event.reset,
-    .signalEvent = Event.signal,
-    .waitForEvent = Event.wait,
-    .sleep = sleep, // TODO
-    .stall = sleep, // TODO
-    .getThreadId = getThreadId, // TODO
-    .installInterruptHandler = installInterruptHandler, // TODO
-    .uninstallInterruptHandler = uninstallInterruptHandler, // TODO
-    .handleFirmwareRequest = handleFirmwareRequest, // TODO
-    .scheduleWork = scheduleWork, // TODO
-    .waitForWorkCompletion = waitForWorkCompletion, // TODO
-    .log = log, // TODO
-    .map = map, // TODO
-    .unmap = unmap, // TODO
-    .pciDeviceOpen = pciDeviceOpen, // TODO
-    .pciDeviceClose = pciDeviceClose, // TODO
-    .pciRead = pciRead, // TODO
-    .pciWrite = pciWrite, // TODO
-    .ioMap = ioMap, // TODO
-    .ioUnmap = ioUnmap, // TODO
-    .ioRead = ioRead, // TODO
-    .ioWrite = ioWrite, // TODO
-};
+export fn uacpi_kernel_unlock_spinlock(spinlock: *Spinlock, state: u64) void {
+    spinlock.unlock(@bitCast(state));
+}
 
-comptime {
-    uacpi.exportFunctions(options, functions);
+export fn uacpi_kernel_get_nanoseconds_since_boot() u64 {
+    return 0;
+}
+
+export fn uacpi_kernel_stall(_: u64) void {
+
+}
+
+export fn uacpi_kernel_sleep(_: u64) void {
+
+}
+
+export fn uacpi_kernel_get_rsdp(out_rsdp_addr: *u64) status {
+    if (limine.rsdp) |rsdp| {
+        out_rsdp_addr.* = rsdp.to(u64);
+        return .ok;
+    }
+    return .unimplemented;
+}
+
+export fn uacpi_kernel_io_read8(_: *anyopaque, _: usize, _: *u8) status {
+    return .unimplemented;
+}
+
+export fn uacpi_kernel_io_read16(_: *anyopaque, _: usize, _: *u16) status {
+    return .unimplemented;
+}
+
+export fn uacpi_kernel_io_read32(_: *anyopaque, _: usize, _: u32) status {
+    return .unimplemented;
+}
+
+export fn uacpi_kernel_io_write8(_: *anyopaque, _: usize, _: u8) status {
+    return .unimplemented;
+}
+
+export fn uacpi_kernel_io_write16(_: *anyopaque, _: usize, _: u16) status {
+    return .unimplemented;
+}
+
+export fn uacpi_kernel_io_write32(_: *anyopaque, _: usize, _: u32) status {
+    return .unimplemented;
+}
+
+export fn uacpi_kernel_pci_read8(_: *anyopaque, _: usize, _: *u8) status {
+    return .unimplemented;
+}
+
+export fn uacpi_kernel_pci_read16(_: *anyopaque, _: usize, _: *u16) status {
+    return .unimplemented;
+}
+
+export fn uacpi_kernel_pci_read32(_: *anyopaque, _: usize, _: u32) status {
+    return .unimplemented;
+}
+
+export fn uacpi_kernel_pci_write8(_: *anyopaque, _: usize, _: u8) status {
+    return .unimplemented;
+}
+
+export fn uacpi_kernel_pci_write16(_: *anyopaque, _: usize, _: u16) status {
+    return .unimplemented;
+}
+
+export fn uacpi_kernel_pci_write32(_: *anyopaque, _: usize, _: u32) status {
+    return .unimplemented;
+}
+
+export fn uacpi_kernel_pci_device_open(_: uacpi.PciAddress, _: *anyopaque) status {
+    return .unimplemented;
+}
+
+export fn uacpi_kernel_pci_device_close(_: *anyopaque) void {
+
+}
+
+export fn uacpi_kernel_schedule_work(_: uacpi.WorkType, _: uacpi.WorkHandler, _: *anyopaque) status {
+    return .unimplemented;
+}
+
+export fn uacpi_kernel_wait_for_work_completion() status {
+    return .unimplemented;
+}
+
+export fn uacpi_kernel_get_thread_id() usize {
+    return 0;
+}
+
+export fn uacpi_kernel_handle_firmware_request(_: *uacpi.FirmwareRequestRaw) status {
+    return .unimplemented;
+}
+
+export fn uacpi_kernel_install_interrupt_handler(_: u32, _: uacpi.InterruptHandler, _: *anyopaque, _: **anyopaque) status {
+    return .unimplemented;
+}
+
+export fn uacpi_kernel_uninstall_interrupt_handler(_: uacpi.InterruptHandler, _: *anyopaque) status {
+    return .unimplemented;
 }

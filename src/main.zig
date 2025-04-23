@@ -4,11 +4,13 @@ const builtin = @import("builtin");
 pub const limine = @import("limine.zig");
 pub const types = @import("types.zig");
 pub const acpi = @import("acpi/acpi.zig");
+pub const zuacpi = @import("zuacpi");
 pub const smp = @import("smp/smp.zig");
 pub const log = @import("debug/log.zig");
 pub const paging = @import("mem/paging.zig");
 pub const mem = @import("mem/mem.zig");
 pub const pmm = @import("mem/pmm.zig");
+pub const interrupts = @import("interrupt/interrupts.zig");
 
 pub const arch = switch (builtin.cpu.arch) {
     .x86_64 => @import("arch/x86_64/arch.zig"),
@@ -19,11 +21,18 @@ pub const arch = switch (builtin.cpu.arch) {
 pub const serial = if(@hasDecl(arch, "serial")) arch.serial else struct {};
 
 comptime {
+    // Export uacpi related functions
+    _ = zuacpi;
     _ = acpi;
 }
 
 pub const std_options = std.Options {
     .logFn = log.formattedLog,
+};
+
+
+pub const zuacpi_options = zuacpi.Options {
+    .allocator = acpi.allocator,
 };
 
 pub fn hcf() noreturn {
@@ -59,7 +68,7 @@ fn kmain() noreturn {
     pmm.earlyInit();
 
     if (limine.rsdp) |_| {
-        acpi.initialize(0) catch |err| std.log.err("Could not initialize ACPI: {}", .{err});
+        acpi.initialize(.{}) catch |err| std.log.err("Could not initialize ACPI: {}", .{err});
     }
 
     hcf();

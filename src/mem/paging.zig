@@ -13,16 +13,14 @@ const PageSize = paging.PageSize;
 const Caching = paging.Caching;
 
 pub const Options = struct {
-    page_size: PageSize = PageSize.default,
+    page_size: PageSize = .default,
     read_only: bool = false,
     executable: bool = true,
     user: bool = false,
-    caching: Caching = Caching.default,
+    caching: Caching = .default,
     global: bool = false,
     /// Whether the limine HHDM should be used instead of our own and pmm.alloc called with the early option
     comptime early: bool = false,
 };
 
-pub inline fn map(phys: PhysAddr, virt: VirtAddr, options: Options) Error!void {
-    return paging.map(phys, virt, options);
-}
+pub const map = paging.map;

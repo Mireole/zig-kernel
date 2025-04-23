@@ -188,7 +188,7 @@ const CR3 = packed struct(u64) {
     }
 };
 
-// TODO use mutexes
+// TODO use mutexes ?
 var map_lock: Spinlock = .{};
 
 /// Creates paging structures to map the virtual address to the physical address.
@@ -197,10 +197,12 @@ pub fn map(phys: PhysAddr, virt: VirtAddr, cr3_opt: ?CR3, options: Options) Erro
     const cr3 = cr3_opt orelse CR3.get();
     if (options.early) return mapEarly(phys, virt, cr3, options);
 
-    // TODO TLB shootdowns :^)
+    // TODO non-early mapping and TLB shootdowns :^)
 }
 
 inline fn mapEarly(phys: PhysAddr, virt: VirtAddr, cr3: CR3, options: Options) Error!void {
     assert(options.early);
-
+    _ = phys;
+    _ = virt;
+    _ = cr3;
 }
