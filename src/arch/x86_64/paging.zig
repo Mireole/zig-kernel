@@ -1,9 +1,12 @@
 const std = @import("std");
 const root = @import("root");
 
+const cpuid = @import("cpuid.zig");
+
 const mem = root.mem;
 const paging = root.paging;
 const limine = root.limine;
+const arch = root.arch;
 
 const PhysAddr = root.types.PhysAddr;
 const VirtAddr = root.types.VirtAddr;
@@ -13,12 +16,24 @@ const Spinlock = root.smp.Spinlock;
 
 const assert = std.debug.assert;
 
-pub const PageSize = enum {
-    pub const default = .page_4kib;
+pub const levels = 4;
 
-    page_4kib,
-    page_2mib,
-    page_1gib,
+pub const PageSize = enum(usize) {
+    page_4kib = 0x1000,
+    page_2mib = 0x200000,
+    page_1gib = 0x40000000,
+
+    pub inline fn largest() PageSize {
+        return if (cpuid.huge_pages) .page_1gib else .page_2mib;
+    }
+
+    pub fn default() PageSize {
+        return .page_4kib;
+    }
+
+    pub fn get(size: PageSize) usize {
+        return @intFromEnum(size);
+    }
 };
 
 const PATBits = packed struct(u3) {
@@ -56,11 +71,11 @@ const PageEntry = packed struct(u64) {
     address: u40,
     ignored2: u7 = 0,
     protection_key: u4,
-    not_executable: bool,
+    not_executable: bool = false,
 
     pub fn from(address: PhysAddr, options: Options) PageEntry {
-        assert(address.v & ~address_mask == 0);
-        const caching_bits: PATBits = @bitCast(options.caching);
+        assert(address.v & 0xFFF == 0);
+        const caching_bits: PATBits = @bitCast(@intFromEnum(options.caching));
         const entry = PageEntry {
             .writable = !options.read_only,
             .user = options.user,
@@ -70,9 +85,9 @@ const PageEntry = packed struct(u64) {
             .global = options.global,
             .address = 0,
             .protection_key = 0,
-            .not_executable = !options.executable,
+//            .not_executable = !options.executable,
         };
-        return @bitCast(@as(u64, @bitCast(entry)) | address.v);
+        return @bitCast(@as(u64, @bitCast(entry)) | (address.v & address_mask));
     }
 };
 
@@ -94,17 +109,17 @@ const PageEntryHuge = packed struct(u64) {
     address: u39,
     ignored2: u7 = 0,
     protection_key: u4,
-    not_executable: bool,
+    not_executable: bool = false,
 
-    pub fn from(address: PhysAddr, options: Options) PageEntry {
-        const address_mask = switch (options.page_size) {
+    pub fn from(address: PhysAddr, options: Options) PageEntryHuge {
+        const address_mask: usize = switch (options.page_size) {
             .page_2mib => address_mask_2mib,
             .page_1gib => address_mask_1gib,
-            _ => unreachable,
+            else => unreachable,
         };
-        assert(address.v & ~address_mask == 0);
-        const caching_bits: PATBits = @bitCast(options.caching);
-        const entry = PageEntry {
+        assert(address.v & 0xFFF == 0);
+        const caching_bits: PATBits = @bitCast(@intFromEnum(options.caching));
+        const entry = PageEntryHuge {
             .writable = !options.read_only,
             .user = options.user,
             .write_through = caching_bits.pwt,
@@ -113,9 +128,9 @@ const PageEntryHuge = packed struct(u64) {
             .global = options.global,
             .address = 0,
             .protection_key = 0,
-            .not_executable = !options.executable,
+//            .not_executable = !options.executable,
         };
-        return @bitCast(@as(u64, @bitCast(entry)) | address.v);
+        return @bitCast(@as(u64, @bitCast(entry)) | (address.v & address_mask));
     }
 };
 
@@ -134,21 +149,20 @@ const PageDirectory = packed struct(u64) {
     ignored2: u3 = 0,
     address: u40,
     ignored3: u11 = 0,
-    not_executable: bool,
+    not_executable: bool = false, // Defaults to false because NXE might not be enabled
 
-    pub fn from(address: PhysAddr, options: Options) PageEntry {
-        assert(address.v & ~address_mask == 0);
-        const entry = PageEntry {
+    pub fn from(address: PhysAddr, options: Options) PageDirectory {
+        assert(address.v & 0xFFF == 0);
+        const entry = PageDirectory {
             .writable = !options.read_only,
             .user = options.user,
             .address = 0,
-            .protection_key = 0,
-            .not_executable = !options.executable,
+//            .not_executable = !options.executable,
         };
-        return @bitCast(@as(u64, @bitCast(entry)) | address.v);
+        return @bitCast(@as(u64, @bitCast(entry)) | (address.v & address_mask));
     }
 
-    pub fn getChild(directory: PageDirectory) PhysAddr {
+    pub fn getTableAddr(directory: PageDirectory) PhysAddr {
         const addr = @as(usize, @bitCast(directory)) & address_mask;
         return PhysAddr.from(addr);
     }
@@ -162,47 +176,163 @@ const CR3 = packed struct(u64) {
     cache_disable: bool = false,
     ignored2: u7 = 0,
     address: u40,
+    must_be_zero: u9 = 0,
     lam57_enable: bool = false,
     lam48_enable: bool = false,
-    must_be_zero: bool = false,
+    must_be_zero2: bool = false,
 
     pub fn from(address: PhysAddr) CR3 {
-        assert(address.v & ~address_mask == 0);
+        assert(address.v & 0xFFF == 0);
         const cr3 = CR3 {
             .address = 0,
         };
-        return @bitCast(@as(u64, @bitCast(cr3)) | address.v);
+        return @bitCast(@as(u64, @bitCast(cr3)) | (address.v & address_mask));
+    }
+
+    pub fn setAddress(cr3: *CR3, address: PhysAddr) void {
+        cr3.address = 0;
+        cr3.* = @bitCast(@as(u64, @bitCast(cr3.*)) | (address.v & address_mask));
     }
 
     pub inline fn get() CR3 {
-        return asm volatile ("movq %%cr3, %[value]"
+        return asm volatile (
+            \\ movq %%cr3, %[value]
             : [value] "=&r" (-> CR3),
         );
     }
 
-    pub inline fn set(cr3: CR3) void {
-        asm volatile ("movq %[value], %%cr3"
+    pub inline fn set(cr3: CR3, new_stack: VirtAddr, next: VirtAddr) noreturn {
+        // Set cr3 to the new value
+        // new_stack -= rsp
+        // rbp += new_stack
+        // rsp += new_stack
+        // jump to next
+        asm volatile (
+            \\ movq %[value], %%cr3
+            \\ subq %%rsp, %[stack]
+            \\ addq %[stack], %%rbp
+            \\ addq %[stack], %%rsp
+            \\ jmpq *%[next]
             :
-            : [value] "r" (cr3),
+            : [value] "r" (cr3), [stack] "r" (new_stack), [next] "r" (next),
+            : "cc",
         );
+        unreachable;
+    }
+
+    pub fn getTableAddr(cr3: CR3) PhysAddr {
+        const addr = @as(usize, @bitCast(cr3)) & address_mask;
+        return PhysAddr.from(addr);
     }
 };
 
-// TODO use mutexes ?
+pub const VMBase = struct {
+    cr3: CR3,
+
+    /// Returns the current VMBase
+    pub fn current() VMBase {
+        return VMBase {
+            .cr3 = CR3.get(),
+        };
+    }
+
+    /// Create a new VMBase with the same parameters but with a different address
+    /// The page should be cleared before being provided
+    pub fn copy(base: VMBase, page: PhysAddr) VMBase {
+        var new = base;
+        new.cr3.setAddress(page);
+        return new;
+    }
+
+    pub inline fn use(base: VMBase, new_stack: VirtAddr, next: VirtAddr) noreturn {
+        base.cr3.set(new_stack, next);
+    }
+};
+
+const LinearAddr = packed struct(u64) {
+    offset: u12,
+    table: u9,
+    directory: u9,
+    directory_pointer: u9,
+    pml4: u9,
+    canonical: u16,
+
+    pub inline fn from(addr: VirtAddr) LinearAddr {
+        return @bitCast(addr.v);
+    }
+};
+
+// TODO SCHED: use mutexes ?
 var map_lock: Spinlock = .{};
 
 /// Creates paging structures to map the virtual address to the physical address.
-/// If cr3_opt is null, the current cr3 is used as base.
-pub fn map(phys: PhysAddr, virt: VirtAddr, cr3_opt: ?CR3, options: Options) Error!void {
-    const cr3 = cr3_opt orelse CR3.get();
-    if (options.early) return mapEarly(phys, virt, cr3, options);
+/// If vm_opt is null, the current virtual memory base is used.
+pub fn map(phys: PhysAddr, virt: VirtAddr, vm_opt: ?VMBase, options: Options) Error!void {
+    const vm_base = vm_opt orelse VMBase.current();
+    if (options.early) return mapEarly(phys, virt, vm_base, options);
 
-    // TODO non-early mapping and TLB shootdowns :^)
+    // TODO: implement this (don't forget page invalidation)
+    // TODO SMP: TLB shootdowns :^)
 }
 
-inline fn mapEarly(phys: PhysAddr, virt: VirtAddr, cr3: CR3, options: Options) Error!void {
+
+// Early methods - only called before the first VMBase is used
+
+inline fn getEarly(T: type, table_addr: PhysAddr, index: u9) *T {
+    const table = limine.get(table_addr).toSlice(T, PageSize.default().get());
+    return &table[index];
+}
+
+fn getOrCreateEarly(table_addr: PhysAddr, index: u9, options: Options) PageDirectory {
+    const entry = getEarly(PageDirectory, table_addr, index);
+
+    if (!entry.present) {
+        const page = mem.init.page_list.getPage();
+        // clear page
+        const page_bytes = limine.get(page).toSlice(u8, PageSize.default().get());
+        @memset(page_bytes, 0);
+
+        entry.* = PageDirectory.from(page, options);
+    }
+
+    return entry.*;
+}
+
+inline fn mapEarly(phys: PhysAddr, virt: VirtAddr, vm_base: VMBase, options: Options) Error!void {
+    // Here, no need to care about locking or TLB as this should only be called before SMP to setup the first VMM
     assert(options.early);
-    _ = phys;
-    _ = virt;
-    _ = cr3;
+
+    const cr3 = vm_base.cr3;
+    const addr = LinearAddr.from(virt);
+
+    const pml4_entry = getOrCreateEarly(cr3.getTableAddr(), addr.pml4, options);
+
+    if (options.page_size == .page_1gib) {
+        const dir_ptr_entry = getEarly(PageEntryHuge, pml4_entry.getTableAddr(), addr.directory_pointer);
+        if (dir_ptr_entry.present)
+            return Error.MappingAlreadyExists;
+
+        // Create the mapping
+        dir_ptr_entry.* = PageEntryHuge.from(phys, options);
+        return;
+    }
+
+    const dir_ptr_entry = getOrCreateEarly(pml4_entry.getTableAddr(), addr.directory_pointer, options);
+
+    if (options.page_size == .page_2mib) {
+        const directory_entry = getEarly(PageEntryHuge, dir_ptr_entry.getTableAddr(), addr.directory);
+        if (directory_entry.present)
+            return Error.MappingAlreadyExists;
+
+        // Create the mapping
+        directory_entry.* = PageEntryHuge.from(phys, options);
+        return;
+    }
+
+    const directory_entry = getOrCreateEarly(dir_ptr_entry.getTableAddr(), addr.directory, options);
+    const table_entry = getEarly(PageEntry, directory_entry.getTableAddr(), addr.table);
+    if (table_entry.present)
+        return Error.MappingAlreadyExists;
+
+    table_entry.* = PageEntry.from(phys, options);
 }

@@ -22,6 +22,11 @@ pub const PhysAddr = packed struct(usize) {
         }
     }
 
+    pub inline fn toSlice(addr: PhysAddr, T: type, size: usize) []T {
+        const ptr = addr.to([*]T);
+        return ptr[0..size];
+    }
+
     pub inline fn get(addr: PhysAddr, T: type) T {
         return @as(*T, @ptrFromInt(addr.v)).*;
     }

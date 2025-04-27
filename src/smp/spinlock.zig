@@ -21,7 +21,7 @@ pub const Spinlock = struct {
         return status;
     }
 
-    // Acquires the lock without disabling interrupts TODO replace every usage with mutexes
+    // Acquires the lock without disabling interrupts TODO SCHED: replace every usage with mutexes
     pub fn lock_interruptible(self: *Spinlock) void {
         const flag: *bool = @ptrCast(self);
         while (flag.* or @cmpxchgWeak(bool, flag, false, true, .acquire, .monotonic) == null) {

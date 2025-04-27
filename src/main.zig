@@ -10,6 +10,7 @@ pub const log = @import("debug/log.zig");
 pub const paging = @import("mem/paging.zig");
 pub const mem = @import("mem/mem.zig");
 pub const pmm = @import("mem/pmm.zig");
+pub const vmm = @import("mem/vmm.zig");
 pub const interrupts = @import("interrupt/interrupts.zig");
 
 pub const arch = switch (builtin.cpu.arch) {
@@ -30,10 +31,22 @@ pub const std_options = std.Options {
     .logFn = log.formattedLog,
 };
 
+pub const panic = std.debug.FullPanic(panicFn);
 
 pub const zuacpi_options = zuacpi.Options {
     .allocator = acpi.allocator,
 };
+
+fn panicFn(msg: []const u8, first_trace_addr: ?usize) noreturn {
+    if (first_trace_addr) |addr| {
+        std.log.err("Kernel panic at {X:0>16}! {s}", .{ addr, msg });
+    }
+    else {
+        std.log.err("Kernel panic at an unknown address! {s}", .{ msg });
+    }
+    interrupts.disable();
+    hcf();
+}
 
 pub fn hcf() noreturn {
     std.log.debug("Entering HCF", .{});
@@ -48,24 +61,29 @@ pub fn hcf() noreturn {
     }
 }
 
+/// Called by Limine, uses the stack provided by Limine.
 export fn _start() noreturn {
-    // Limine already gives us a stack, so we can just call
-    kmain();
-}
-
-fn kmain() noreturn {
     if (!limine.limineBaseRevisionSupported()) {
         hcf();
     }
-    
+
     if (@hasDecl(serial, "init")) {
         arch.serial.init();
+        std.log.debug("Serial connection initialized", .{});
     }
+
+    arch.init();
 
     limine.init();
     limine.drawLine(0);
 
-    pmm.earlyInit();
+    mem.init.init(types.VirtAddr.from(&init));
+}
+
+/// Called by mem.init.init once the VMBase has been set up.
+/// It is called with a fresh kernel stack.
+export fn init() noreturn {
+    pmm.init();
 
     if (limine.rsdp) |_| {
         acpi.initialize(.{}) catch |err| std.log.err("Could not initialize ACPI: {}", .{err});

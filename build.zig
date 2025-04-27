@@ -4,8 +4,9 @@ const builtin = @import("builtin");
 const Xorriso = @import("build/steps/Xorriso.zig");
 
 const base_qemu_args = .{
-    "-serial", "file:logs/serial.log",
-    "-daemonize",
+    "-chardev",  "stdio,id=char0,logfile=logs/serial.log,signal=off",
+    "-serial", "chardev:char0",
+//    "-daemonize",
     "-smp", "2",
     "-D", "logs/qemu.log", // Log to logs/qemu.log
     "-m", "4G",
@@ -14,7 +15,7 @@ const base_qemu_args = .{
 const qemu_debug_args = .{
     "-s", // Enable the gdb stub
     "-S", // Start on paused state
-    "-no-reboot" // Do not restart after a triple fault
+    "-no-reboot", "-no-shutdown" // Do not restart and hang after a triple fault
 };
 
 const Step = std.Build.Step;
@@ -55,6 +56,7 @@ pub fn build(b: *std.Build) !void {
             linker_script_path = b.path("build/linker-x86_64.ld");
             qemu_cmdline = &(.{
                 "qemu-system-x86_64",
+                "-cpu", "max",
                 "-M", "q35",
                 "-drive", "if=pflash,unit=0,format=raw,file=ovmf/ovmf-code-x86_64.fd,readonly=on",
                 "-d", "int,page,cpu_reset,mmu", // Log useful info
@@ -205,7 +207,4 @@ fn addQemuSteps(b: *std.Build, limine_step: *Step, xorriso: *Xorriso, qemu_cmdli
     const qemu_install_step = b.step("qemu-install", "Run in QEMU and output the ELF");
     qemu_install_step.dependOn(&qemu.step);
     qemu_install_step.dependOn(b.getInstallStep());
-
-    // Fetch ovmf if the ovmf directory does not exist
-    _ = b.build_root.handle.openDir("ovmf", .{}) catch qemu_step.dependOn(&ovmf.step);
 }

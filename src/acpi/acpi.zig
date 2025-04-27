@@ -5,7 +5,7 @@ const impl = @import("impl.zig");
 
 const uacpi = zuacpi.uacpi;
 
-// TODO use a real allocator
+// TODO ALLOC: use a real allocator
 var buffer: [32768]u8 = undefined;
 var fba = std.heap.FixedBufferAllocator.init(&buffer);
 pub const allocator = fba.threadSafeAllocator();

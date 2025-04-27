@@ -64,18 +64,18 @@ const COMPort = struct {
         port.initialized = true;
     }
 
-    fn can_transmit(port: COMPort) bool {
+    fn canTransmit(port: COMPort) bool {
         assert(port.initialized == true);
         return inb(port.address + line_status) & 0x20 > 0;
     }
 
     pub fn write(port: COMPort, value: u8) void {
         assert(port.initialized == true);
-        while (!can_transmit(port)) {}
+        while (!canTransmit(port)) {}
         outb(port.address + transmit_buffer, value);
     }
 
-    pub fn write_string(port: COMPort, string: []const u8) void {
+    pub fn writeString(port: COMPort, string: []const u8) void {
         assert(port.initialized == true);
         for (string) |char| {
             port.write(char);
@@ -93,13 +93,14 @@ pub fn init() void {
         ports[i] = port;
     }
     initialized = true;
-    write_string("\n");
+    // Send a newline and reset terminal settings
+    writeString("\n");
 }
 
-pub fn write_string(string: []const u8) void {
+pub fn writeString(string: []const u8) void {
     if (!initialized) return;
     for (ports) |port| {
-        if (port.initialized) port.write_string(string);
+        if (port.initialized) port.writeString(string);
     }
 }
 

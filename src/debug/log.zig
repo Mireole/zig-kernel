@@ -9,8 +9,8 @@ fn writeFn(_: *const anyopaque, bytes: []const u8) !usize {
 }
 
 pub fn logFn(format: []const u8) usize {
-    if (@hasDecl(serial, "write_string")) {
-        serial.write_string(format);
+    if (@hasDecl(serial, "writeString")) {
+        serial.writeString(format);
     }
     return format.len;
 }
@@ -21,6 +21,7 @@ pub fn formattedLog(
     comptime format: []const u8,
     args: anytype,
 ) void {
+    // TODO SMP: Thread safety ?
     const level_txt = comptime message_level.asText();
     const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
     
@@ -29,7 +30,5 @@ pub fn formattedLog(
         .writeFn = writeFn,
     };
 
-    if (@hasDecl(serial, "write_string")) {
-        std.fmt.format(writer, level_txt ++ prefix2 ++ format ++ "\n", args) catch {};
-    }
+    std.fmt.format(writer, level_txt ++ prefix2 ++ format ++ "\n", args) catch {};
 }

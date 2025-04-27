@@ -8,13 +8,13 @@ const acpi = root.acpi;
 
 const Error = uacpi.Error;
 const Spinlock = root.smp.Spinlock;
-// TODO use real Mutexes
+// TODO SCHED: use real Mutexes
 const Mutex = Spinlock;
 
 var allocator = acpi.allocator;
 const status = uacpi.uacpi_status;
 
-// Very simple impl TODO use a semaphore once mutexes are implemented
+// Very simple impl TODO SCHED: use a semaphore once mutexes are implemented
 const Event = struct {
     lock: Spinlock = Spinlock{},
     count: usize = 0,

@@ -76,6 +76,7 @@ export var dtb_request linksection(".requests") = limine.limine_dtb_request{
 export var mp_request linksection(".requests") = limine.limine_mp_request{
     .id = limine_common_magic ++ .{ 0x95a67b819a1b857e, 0xa0b61b723b6a73e0 },
     .revision = 0,
+    .flags = 0x1, // Enable x2APIC if possible
 };
 
 // Memory map request
@@ -85,14 +86,14 @@ export var memmap_request linksection(".requests") = limine.limine_memmap_reques
 };
 
 pub const MemmapType = enum(u32) {
-    Usable = limine.LIMINE_MEMMAP_USABLE,
-    Reserved = limine.LIMINE_MEMMAP_RESERVED,
-    AcpiReclaimable = limine.LIMINE_MEMMAP_ACPI_RECLAIMABLE,
-    AcpiNVS = limine.LIMINE_MEMMAP_ACPI_NVS,
-    BadMemory = limine.LIMINE_MEMMAP_BAD_MEMORY,
-    BootloaderReclaimable = limine.LIMINE_MEMMAP_BOOTLOADER_RECLAIMABLE,
-    ExecutableAndModules = limine.LIMINE_MEMMAP_EXECUTABLE_AND_MODULES,
-    Framebuffer = limine.LIMINE_MEMMAP_FRAMEBUFFER,
+    usable = limine.LIMINE_MEMMAP_USABLE,
+    reserved = limine.LIMINE_MEMMAP_RESERVED,
+    acpi_reclaimable = limine.LIMINE_MEMMAP_ACPI_RECLAIMABLE,
+    acpi_nvs = limine.LIMINE_MEMMAP_ACPI_NVS,
+    bad_memory = limine.LIMINE_MEMMAP_BAD_MEMORY,
+    bootloader_reclaimable = limine.LIMINE_MEMMAP_BOOTLOADER_RECLAIMABLE,
+    executable_and_modules = limine.LIMINE_MEMMAP_EXECUTABLE_AND_MODULES,
+    framebuffer = limine.LIMINE_MEMMAP_FRAMEBUFFER,
 };
 
 pub fn init() void{
@@ -105,6 +106,7 @@ pub fn init() void{
         @panic("Cannot retrieve the HHDM start address");
     }
     hhdm_start = hhdm_response.*.offset;
+    std.log.debug("Limine HHDM start address: {X:0>16}", .{ hhdm_start });
 
     const rsdp_request_ptr: *volatile limine.limine_rsdp_request = @ptrCast(&rsdp_request);
     const rsdp_response = rsdp_request_ptr.response;

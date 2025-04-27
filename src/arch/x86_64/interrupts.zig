@@ -8,20 +8,29 @@ pub const Status = packed struct(u64) {
 
 const interrupt_flag_mask = 1 << 9;
 
-// Disable interrupts and return the previous state
+/// Disable interrupts
+pub fn disable() void {
+    asm volatile ("cli");
+}
+
+/// Disable interrupts and return the previous state
 pub fn save() Status {
     const flags = asm volatile("pushf ; pop %[value]"
         : [value] "=r" (-> u16)
     );
     const interrupt_enable = flags & interrupt_flag_mask > 0;
-    if (interrupt_enable) asm volatile ("cli");
+    if (interrupt_enable) disable();
 
     return Status {
         .interrupts_enabled = interrupt_enable,
     };
 }
 
-// Restore interrupts from the given state
+pub fn enable() void {
+    asm volatile ("sti");
+}
+
+/// Restore interrupts from the given state
 pub fn restore(status: Status) void {
-    if (status.interrupts_enabled) asm volatile ("sti");
+    if (status.interrupts_enabled) enable();
 }
