@@ -8,8 +8,8 @@ const PhysAddr = root.types.PhysAddr;
 const PageSize = paging.PageSize;
 
 pub const hhdm_start = 0xffff800000000000;
-/// Only for testing purposes, to make sure that we aren't accidentally using something from Limine
-//pub const hhdm_start = 0xffff000000000000;
+// Only for testing purposes, to make sure that we aren't accidentally using something from Limine
+// pub const hhdm_start = 0xffff000000000000;
 pub const hhdm_size = 0x400000000000; // 64 TiB
 pub const kernel_start = 0xffffffff80000000;
 /// Start of the kernel stack memory region

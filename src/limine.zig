@@ -145,7 +145,7 @@ pub noinline fn drawLine(offset: usize) void {
 
     const framebuffer = response.*.framebuffers[0];
 
-    for (0..100) |i| {
+    for (0..framebuffer.*.height) |i| {
         const fb_ptr: [*]volatile u32 = @alignCast(@ptrCast(framebuffer.*.address));
         fb_ptr[i * (framebuffer.*.pitch / 4) + i + offset] = 0xffffffff;
     }
