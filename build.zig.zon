@@ -26,12 +26,12 @@
     // internet connectivity.
     .dependencies = .{
         .limine = .{
-            .url = "git+https://github.com/limine-bootloader/limine?ref=v9.x-binary#9246bb78f446962aae5b0a291db4be32f9866ba6",
-            .hash = "N-V-__8AAMBtRwC7JHlrjdRA6q1ySbNZ3wTys8baAQh0Ascf",
+            .url = "git+https://github.com/limine-bootloader/limine?ref=v9.x-binary#39e685c3695cc373a5859ebf14106c924b0c5ece",
+            .hash = "N-V-__8AAOBwRwDmz6JFkLfV2vqvHUH_opGQNDADqeOoN8am",
         },
         .zuacpi = .{
-            .url = "git+https://github.com/uACPI/zuacpi?ref=main#54b086989be8bed3f13b112837537cb122fa4998",
-            .hash = "zuacpi-0.0.0--wIHKAqeAAD2Cp8HoMmMT1sdojGBcH2yujB_zvC5C98k",
+            .url = "git+https://github.com/uACPI/zuacpi?ref=main#ef7dbd2ef0121818ecffef46b71a6ca5183ac88f",
+            .hash = "zuacpi-0.0.0--wIHKD6mAAA4JpbM2P_mAAvbLVOS4Z6D4x016UhIZ7SY",
         },
     },
     .paths = .{

@@ -143,11 +143,13 @@ pub noinline fn drawLine(offset: usize) void {
     // The framebuffer needs to use 32 bits per pixel for this code to work as intended
     if (response == null or response.*.framebuffer_count < 1) return;
 
-    const framebuffer = response.*.framebuffers[0];
+    const framebuffers = response.*.framebuffers[0..response.*.framebuffer_count];
 
-    for (0..framebuffer.*.height) |i| {
-        const fb_ptr: [*]volatile u32 = @alignCast(@ptrCast(framebuffer.*.address));
-        fb_ptr[i * (framebuffer.*.pitch / 4) + i + offset] = 0xffffffff;
+    for (framebuffers) |framebuffer| {
+        for (0..framebuffer.*.height) |i| {
+            const fb_ptr: [*]volatile u32 = @alignCast(@ptrCast(framebuffer.*.address));
+            fb_ptr[i * (framebuffer.*.pitch / 4) + i + offset] = 0xffffffff;
+        }
     }
 }
 

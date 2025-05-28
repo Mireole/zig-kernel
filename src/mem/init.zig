@@ -24,7 +24,7 @@ const TemporaryPageList = struct {
     memmap_index: usize = 0,
     memmap_entry_index: usize = 0,
 
-    /// One Node takes up exactly the space available in a default page
+    /// One Node takes up at most the space available in a default page
     const Node = extern struct {
         next: ?*Node,
         /// Physical addresses of pages

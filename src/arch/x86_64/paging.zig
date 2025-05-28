@@ -203,15 +203,11 @@ const CR3 = packed struct(u64) {
 
     pub inline fn set(cr3: CR3, new_stack: VirtAddr, next: VirtAddr) noreturn {
         // Set cr3 to the new value
-        // new_stack -= rsp
-        // rbp += new_stack
-        // rsp += new_stack
+        // rsp = new_stack
         // jump to next
         asm volatile (
             \\ movq %[value], %%cr3
-            \\ subq %%rsp, %[stack]
-            \\ addq %[stack], %%rbp
-            \\ addq %[stack], %%rsp
+            \\ movq %[stack], %%rsp
             \\ jmpq *%[next]
             :
             : [value] "r" (cr3), [stack] "r" (new_stack), [next] "r" (next),

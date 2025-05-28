@@ -7,7 +7,7 @@ const base_qemu_args = .{
     "-chardev",  "stdio,id=char0,logfile=logs/serial.log,signal=off",
     "-serial", "chardev:char0",
 //    "-daemonize",
-    "-smp", "2",
+    "-smp", "4",
     "-D", "logs/qemu.log", // Log to logs/qemu.log
     "-m", "4G",
 };
