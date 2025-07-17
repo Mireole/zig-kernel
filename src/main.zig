@@ -11,6 +11,7 @@ pub const paging = @import("mem/paging.zig");
 pub const mem = @import("mem/mem.zig");
 pub const pmm = @import("mem/pmm.zig");
 pub const vmm = @import("mem/vmm.zig");
+pub const heap = @import("mem/heap.zig");
 pub const interrupts = @import("interrupt/interrupts.zig");
 
 pub const arch = switch (builtin.cpu.arch) {
@@ -19,7 +20,7 @@ pub const arch = switch (builtin.cpu.arch) {
     .riscv64 => @import("arch/riscv64/arch.zig"),
     else => @compileError("Uknown arch"),
 };
-pub const serial = if(@hasDecl(arch, "serial")) arch.serial else struct {};
+pub const serial = if (@hasDecl(arch, "serial")) arch.serial else struct {};
 
 comptime {
     // Export uacpi related functions
@@ -27,22 +28,21 @@ comptime {
     _ = acpi;
 }
 
-pub const std_options = std.Options {
+pub const std_options = std.Options{
     .logFn = log.formattedLog,
 };
 
 pub const panic = std.debug.FullPanic(panicFn);
 
-pub const zuacpi_options = zuacpi.Options {
+pub const zuacpi_options = zuacpi.Options{
     .allocator = acpi.allocator,
 };
 
 fn panicFn(msg: []const u8, first_trace_addr: ?usize) noreturn {
     if (first_trace_addr) |addr| {
         std.log.err("Kernel panic at {X:0>16}! {s}", .{ addr, msg });
-    }
-    else {
-        std.log.err("Kernel panic at an unknown address! {s}", .{ msg });
+    } else {
+        std.log.err("Kernel panic at an unknown address! {s}", .{msg});
     }
     interrupts.disable();
     hcf();
@@ -72,12 +72,12 @@ export fn _start() noreturn {
         std.log.debug("Serial connection initialized", .{});
     }
 
-    arch.init();
-
     limine.init();
+    arch.init();
     limine.drawLine(0);
 
-    mem.init.init(types.VirtAddr.from(&init));
+    mem.init.init(types.VirtAddr.from(&init)) catch |err|
+        std.debug.panic("VMM initialization failed, {}", .{err});
 }
 
 /// Called by mem.init.init once the VMBase has been set up.

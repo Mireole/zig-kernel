@@ -6,8 +6,6 @@ const interrupts = root.interrupts;
 const cache_line = std.atomic.cache_line;
 const CacheLine: type = @Type(.{ .int = .{ .bits = cache_line * 8, .signedness = .unsigned } });
 
-
-
 pub const Spinlock = struct {
     value: CacheLine align(cache_line) = 0,
 
@@ -24,7 +22,7 @@ pub const Spinlock = struct {
     // Acquires the lock without disabling interrupts TODO SCHED: replace every usage with mutexes
     pub fn lock_interruptible(self: *Spinlock) void {
         const flag: *bool = @ptrCast(self);
-        while (flag.* or @cmpxchgWeak(bool, flag, false, true, .acquire, .monotonic) == null) {
+        while (@cmpxchgWeak(bool, flag, false, true, .acquire, .monotonic) != null) {
             std.atomic.spinLoopHint();
         }
     }

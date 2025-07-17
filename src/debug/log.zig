@@ -24,8 +24,8 @@ pub fn formattedLog(
     // TODO SMP: Thread safety ?
     const level_txt = comptime message_level.asText();
     const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
-    
-    const writer = std.io.AnyWriter {
+
+    const writer = std.io.AnyWriter{
         .context = &{},
         .writeFn = writeFn,
     };

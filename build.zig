@@ -7,9 +7,9 @@ const base_qemu_args = .{
     "-chardev",  "stdio,id=char0,logfile=logs/serial.log,signal=off",
     "-serial", "chardev:char0",
 //    "-daemonize",
-    "-smp", "4",
+    "-smp", "2",
     "-D", "logs/qemu.log", // Log to logs/qemu.log
-    "-m", "4G",
+    "-m", "1G",
 };
 
 const qemu_debug_args = .{
@@ -114,13 +114,25 @@ pub fn build(b: *std.Build) !void {
     const kernel = b.addExecutable(.{
         .name = "sanity.elf",
         .root_module = kernel_module,
+        .use_llvm = true, // Needed for now as the self hosted backed crashes
+                          // TODO remove this when the self hosted backend works well enough for Debug
+    });
+
+    const kernel_check = b.addExecutable(.{
+        .name = "sanity.elf",
+        .root_module = kernel_module,
     });
 
     kernel.setLinkerScript(linker_script_path);
+    kernel_check.setLinkerScript(linker_script_path);
+
     b.installArtifact(kernel);
 
     const kernel_step = b.step("kernel", "Build the kernel");
     kernel_step.dependOn(&kernel.step);
+
+    const kernel_check_step = b.step("check", "Build the kernel without emitting binaries");
+    kernel_check_step.dependOn(&kernel_check.step);
 
     // Limine
     var limine_dep = b.dependency("limine", .{
@@ -137,7 +149,7 @@ pub fn build(b: *std.Build) !void {
     translate_header.defineCMacro("LIMINE_API_REVISION", "2");
 
     const limine_module = translate_header.addModule("limine");
-    kernel.root_module.addImport("limine", limine_module);
+    kernel_module.addImport("limine", limine_module);
 
     // Zuacpi
     const zuacpi = b.dependency("zuacpi", .{
@@ -146,8 +158,7 @@ pub fn build(b: *std.Build) !void {
     });
 
     const zuacpi_module = zuacpi.module("zuacpi");
-
-    kernel.root_module.addImport("zuacpi", zuacpi_module);
+    kernel_module.addImport("zuacpi", zuacpi_module);
 
     const xorriso = Xorriso.create(b, arch, kernel, limine_dep);
 

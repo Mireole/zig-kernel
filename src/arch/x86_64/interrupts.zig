@@ -15,13 +15,13 @@ pub fn disable() void {
 
 /// Disable interrupts and return the previous state
 pub fn save() Status {
-    const flags = asm volatile("pushf ; pop %[value]"
-        : [value] "=r" (-> u16)
+    const flags = asm volatile ("pushf ; pop %[value]"
+        : [value] "=r" (-> u16),
     );
     const interrupt_enable = flags & interrupt_flag_mask > 0;
     if (interrupt_enable) disable();
 
-    return Status {
+    return Status{
         .interrupts_enabled = interrupt_enable,
     };
 }

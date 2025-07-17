@@ -19,11 +19,7 @@
     // with this value.
     //.minimum_zig_version = "0.11.0",
 
-    // This field is optional.
-    // Each dependency must either provide a `url` and `hash`, or a `path`.
-    // `zig build --fetch` can be used to fetch all dependencies of a package, recursively.
-    // Once all dependencies are fetched, `zig build` no longer requires
-    // internet connectivity.
+    // DO NOT MANUALLY UPDATE, use the update_deps script
     .dependencies = .{
         .limine = .{
             .url = "git+https://github.com/limine-bootloader/limine?ref=v9.x-binary#39e685c3695cc373a5859ebf14106c924b0c5ece",

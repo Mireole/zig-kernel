@@ -1,3 +1,1 @@
-pub fn init() void {
-
-}
+pub fn init() void {}

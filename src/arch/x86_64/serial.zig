@@ -30,7 +30,7 @@ const test_value = 0xA5;
 
 var initialized = false;
 
-const SerialError = error {
+const SerialError = error{
     InvalidPort,
 };
 
@@ -54,7 +54,7 @@ const COMPort = struct {
 
         // Test the serial port
         outb(address + transmit_buffer, test_value);
-        
+
         if (inb(address + receive_buffer) != test_value) {
             return SerialError.InvalidPort;
         }
@@ -81,12 +81,11 @@ const COMPort = struct {
             port.write(char);
         }
     }
-
 };
 
 pub fn init() void {
     for (com_addresses, 0..) |address, i| {
-        var port = COMPort {
+        var port = COMPort{
             .address = address,
         };
         port.init() catch {};

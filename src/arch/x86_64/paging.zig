@@ -17,7 +17,14 @@ const Spinlock = root.smp.Spinlock;
 const assert = std.debug.assert;
 
 pub const levels = 4;
+// Sizes of the areas mapped by each paging entry level
+const mapped_areas: [levels]usize = .{
+    0x1000, 0x200000, 0x40000000, 0x8000000000,
+};
 
+var zero_pages: [levels - 1]PhysAddr = undefined;
+
+/// Physical page sizes
 pub const PageSize = enum(usize) {
     page_4kib = 0x1000,
     page_2mib = 0x200000,
@@ -27,11 +34,11 @@ pub const PageSize = enum(usize) {
         return if (cpuid.huge_pages) .page_1gib else .page_2mib;
     }
 
-    pub fn default() PageSize {
+    pub inline fn default() PageSize {
         return .page_4kib;
     }
 
-    pub fn get(size: PageSize) usize {
+    pub inline fn get(size: PageSize) usize {
         return @intFromEnum(size);
     }
 };
@@ -76,7 +83,7 @@ const PageEntry = packed struct(u64) {
     pub fn from(address: PhysAddr, options: Options) PageEntry {
         assert(address.v & 0xFFF == 0);
         const caching_bits: PATBits = @bitCast(@intFromEnum(options.caching));
-        const entry = PageEntry {
+        const entry = PageEntry{
             .writable = !options.read_only,
             .user = options.user,
             .write_through = caching_bits.pwt,
@@ -85,7 +92,6 @@ const PageEntry = packed struct(u64) {
             .global = options.global,
             .address = 0,
             .protection_key = 0,
-//            .not_executable = !options.executable,
         };
         return @bitCast(@as(u64, @bitCast(entry)) | (address.v & address_mask));
     }
@@ -119,7 +125,7 @@ const PageEntryHuge = packed struct(u64) {
         };
         assert(address.v & 0xFFF == 0);
         const caching_bits: PATBits = @bitCast(@intFromEnum(options.caching));
-        const entry = PageEntryHuge {
+        const entry = PageEntryHuge{
             .writable = !options.read_only,
             .user = options.user,
             .write_through = caching_bits.pwt,
@@ -128,7 +134,7 @@ const PageEntryHuge = packed struct(u64) {
             .global = options.global,
             .address = 0,
             .protection_key = 0,
-//            .not_executable = !options.executable,
+            //            .not_executable = !options.executable,
         };
         return @bitCast(@as(u64, @bitCast(entry)) | (address.v & address_mask));
     }
@@ -153,11 +159,11 @@ const PageDirectory = packed struct(u64) {
 
     pub fn from(address: PhysAddr, options: Options) PageDirectory {
         assert(address.v & 0xFFF == 0);
-        const entry = PageDirectory {
+        const entry = PageDirectory{
             .writable = !options.read_only,
             .user = options.user,
             .address = 0,
-//            .not_executable = !options.executable,
+            //            .not_executable = !options.executable,
         };
         return @bitCast(@as(u64, @bitCast(entry)) | (address.v & address_mask));
     }
@@ -183,7 +189,7 @@ const CR3 = packed struct(u64) {
 
     pub fn from(address: PhysAddr) CR3 {
         assert(address.v & 0xFFF == 0);
-        const cr3 = CR3 {
+        const cr3 = CR3{
             .address = 0,
         };
         return @bitCast(@as(u64, @bitCast(cr3)) | (address.v & address_mask));
@@ -210,8 +216,10 @@ const CR3 = packed struct(u64) {
             \\ movq %[stack], %%rsp
             \\ jmpq *%[next]
             :
-            : [value] "r" (cr3), [stack] "r" (new_stack), [next] "r" (next),
-            : "cc",
+            : [value] "r" (cr3),
+              [stack] "r" (new_stack),
+              [next] "r" (next),
+            : "cc"
         );
         unreachable;
     }
@@ -227,7 +235,7 @@ pub const VMBase = struct {
 
     /// Returns the current VMBase
     pub fn current() VMBase {
-        return VMBase {
+        return VMBase{
             .cr3 = CR3.get(),
         };
     }
@@ -240,7 +248,7 @@ pub const VMBase = struct {
         return new;
     }
 
-    pub inline fn use(base: VMBase, new_stack: VirtAddr, next: VirtAddr) noreturn {
+    pub inline fn enable(base: VMBase, new_stack: VirtAddr, next: VirtAddr) noreturn {
         base.cr3.set(new_stack, next);
     }
 };
@@ -261,26 +269,33 @@ const LinearAddr = packed struct(u64) {
 // TODO SCHED: use mutexes ?
 var map_lock: Spinlock = .{};
 
-/// Creates paging structures to map the virtual address to the physical address.
-/// If vm_opt is null, the current virtual memory base is used.
 pub fn map(phys: PhysAddr, virt: VirtAddr, vm_opt: ?VMBase, options: Options) Error!void {
     const vm_base = vm_opt orelse VMBase.current();
     if (options.early) return mapEarly(phys, virt, vm_base, options);
 
-    // TODO: implement this (don't forget page invalidation)
+    @panic("TODO");
+    // TODO: implement this (don't forget page invalidation, only needed when changing page perms / underlying phys addr)
     // TODO SMP: TLB shootdowns :^)
 }
 
+// NOTE: most of the options, notably global, are ignored right now
+pub fn mapZero(start: VirtAddr, end: VirtAddr, vm_opt: ?VMBase, options: Options) Error!void {
+    assert(options.read_only);
+    const vm_base = vm_opt orelse VMBase.current();
+    if (options.early) return mapZeroEarly(start, end, vm_base, options);
+
+    @panic("TODO");
+}
 
 // Early methods - only called before the first VMBase is used
 
-inline fn getEarly(T: type, table_addr: PhysAddr, index: u9) *T {
+inline fn getPtrEarly(T: type, table_addr: PhysAddr, index: u9) *T {
     const table = limine.get(table_addr).toSlice(T, PageSize.default().get());
     return &table[index];
 }
 
 fn getOrCreateEarly(table_addr: PhysAddr, index: u9, options: Options) PageDirectory {
-    const entry = getEarly(PageDirectory, table_addr, index);
+    const entry = getPtrEarly(PageDirectory, table_addr, index);
 
     if (!entry.present) {
         const page = mem.init.page_list.getPage();
@@ -294,7 +309,8 @@ fn getOrCreateEarly(table_addr: PhysAddr, index: u9, options: Options) PageDirec
     return entry.*;
 }
 
-inline fn mapEarly(phys: PhysAddr, virt: VirtAddr, vm_base: VMBase, options: Options) Error!void {
+fn mapEarly(phys: PhysAddr, virt: VirtAddr, vm_base: VMBase, options: Options) Error!void {
+    const existingMapping: Error!void = if (options.allow_existing) {} else Error.MappingAlreadyExists;
     // Here, no need to care about locking or TLB as this should only be called before SMP to setup the first VMM
     assert(options.early);
 
@@ -304,9 +320,9 @@ inline fn mapEarly(phys: PhysAddr, virt: VirtAddr, vm_base: VMBase, options: Opt
     const pml4_entry = getOrCreateEarly(cr3.getTableAddr(), addr.pml4, options);
 
     if (options.page_size == .page_1gib) {
-        const dir_ptr_entry = getEarly(PageEntryHuge, pml4_entry.getTableAddr(), addr.directory_pointer);
+        const dir_ptr_entry = getPtrEarly(PageEntryHuge, pml4_entry.getTableAddr(), addr.directory_pointer);
         if (dir_ptr_entry.present)
-            return Error.MappingAlreadyExists;
+            return existingMapping;
 
         // Create the mapping
         dir_ptr_entry.* = PageEntryHuge.from(phys, options);
@@ -316,9 +332,9 @@ inline fn mapEarly(phys: PhysAddr, virt: VirtAddr, vm_base: VMBase, options: Opt
     const dir_ptr_entry = getOrCreateEarly(pml4_entry.getTableAddr(), addr.directory_pointer, options);
 
     if (options.page_size == .page_2mib) {
-        const directory_entry = getEarly(PageEntryHuge, dir_ptr_entry.getTableAddr(), addr.directory);
+        const directory_entry = getPtrEarly(PageEntryHuge, dir_ptr_entry.getTableAddr(), addr.directory);
         if (directory_entry.present)
-            return Error.MappingAlreadyExists;
+            return existingMapping;
 
         // Create the mapping
         directory_entry.* = PageEntryHuge.from(phys, options);
@@ -326,9 +342,90 @@ inline fn mapEarly(phys: PhysAddr, virt: VirtAddr, vm_base: VMBase, options: Opt
     }
 
     const directory_entry = getOrCreateEarly(dir_ptr_entry.getTableAddr(), addr.directory, options);
-    const table_entry = getEarly(PageEntry, directory_entry.getTableAddr(), addr.table);
+    const table_entry = getPtrEarly(PageEntry, directory_entry.getTableAddr(), addr.table);
     if (table_entry.present)
-        return Error.MappingAlreadyExists;
+        return existingMapping;
 
     table_entry.* = PageEntry.from(phys, options);
+}
+
+fn mapZeroEarly(start: VirtAddr, end: VirtAddr, vm_base: VMBase, options: Options) Error!void {
+    var existingMapping: bool = false;
+    const cr3 = vm_base.cr3;
+    // Here, no need to care about locking or TLB as this should only be called before SMP to setup the first VMM
+    assert(options.early);
+
+    var current = start;
+    while (current.v < end.v) {
+        const addr = LinearAddr.from(current);
+        const pml4_entry = getOrCreateEarly(cr3.getTableAddr(), addr.pml4, options);
+        if (current.v & (mapped_areas[2] - 1) == 0 and current.v + mapped_areas[2] <= end.v) {
+            const dir_ptr_entry = getPtrEarly(PageDirectory, pml4_entry.getTableAddr(), addr.directory_pointer);
+            if (dir_ptr_entry.present) {
+                existingMapping = true;
+            }
+            else {
+                dir_ptr_entry.* = PageDirectory.from(zero_pages[2], options);
+            }
+            current = current.add(mapped_areas[2]);
+            continue;
+        }
+
+        const dir_ptr_entry = getOrCreateEarly(pml4_entry.getTableAddr(), addr.directory_pointer, options);
+        if (current.v & (mapped_areas[1] - 1) == 0 and current.v + mapped_areas[1] <= end.v) {
+            const dir_entry = getPtrEarly(PageDirectory, dir_ptr_entry.getTableAddr(), addr.directory);
+            if (dir_entry.present) {
+                existingMapping = true;
+            }
+            else {
+                dir_entry.* = PageDirectory.from(zero_pages[1], options);
+            }
+            current = current.add(mapped_areas[1]);
+            continue;
+        }
+
+        const dir_entry = getOrCreateEarly(dir_ptr_entry.getTableAddr(), addr.directory, options);
+        if (current.v & (mapped_areas[0] - 1) == 0 and current.v + mapped_areas[0] <= end.v) {
+            const table_entry = getPtrEarly(PageEntry, dir_entry.getTableAddr(), addr.table);
+            if (table_entry.present) {
+                existingMapping = true;
+            }
+            else {
+                table_entry.* = PageEntry.from(zero_pages[0], options);
+            }
+            current = current.add(mapped_areas[0]);
+            continue;
+        }
+        unreachable; // Address not aligned
+    }
+
+    if (existingMapping and !options.allow_existing) return Error.MappingAlreadyExists;
+}
+
+pub fn initZeroPages() void {
+    const options = Options {
+        .executable = false,
+        .global = false,
+        .read_only = true,
+        .user = true,
+    };
+
+    const page_list = &mem.init.page_list;
+
+    const page_phys = page_list.getPage();
+    const page = limine.get(page_phys);
+    @memset(page.toSlice(u8, 4096), 0);
+    zero_pages[0] = page_phys;
+
+    const entry = PageEntry.from(page_phys, options);
+    const page_dir_phys = page_list.getPage();
+    const page_dir = limine.get(page_dir_phys);
+    @memset(page_dir.toSlice(PageEntry, 512), entry);
+    zero_pages[1] = page_dir_phys;
+
+    const dir_entry = PageDirectory.from(page_dir_phys, options);
+    const page_dir_ptr_phys = page_list.getPage();
+    const page_dir_ptr = limine.get(page_dir_ptr_phys);
+    @memset(page_dir_ptr.toSlice(PageDirectory, 512), dir_entry);
+    zero_pages[2] = page_dir_ptr_phys;
 }

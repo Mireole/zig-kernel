@@ -1,35 +1,75 @@
 // Simple buddy allocator
+// TODO PERF
 
 const std = @import("std");
 const root = @import("root");
 
 const limine = root.limine;
 const vmm = root.vmm;
+const mem = root.mem;
+const smp = root.smp;
+const paging = root.paging;
+const types = root.types;
 
-const min_block_size = 0x4000; // 4 KiB
-const max_block_size = 0x40000000; // 1 GiB
-const orders = @log2(@as(comptime_float, @floatFromInt(max_block_size / min_block_size))) + 1;
+const Spinlock = smp.Spinlock;
+const PageSize = paging.PageSize;
+const PageOptions = paging.PageOptions;
+const Page = paging.Page;
+const VirtAddr = types.VirtAddr;
+
+const assert = std.debug.assert;
+
+const Error = error {
+    OutOfMemory,
+};
+
+const min_block_size = PageSize.default().get();
+const min_block_order = std.math.log2(min_block_size);
+const max_order = 9; // 2 MiB blocks
 
 const Block = struct {
-    next: *Block,
+    next: ?*Block,
+    prev: ?*Block,
+
+    pub inline fn buddy(block: *Block, order: usize) *Block {
+        var addr = VirtAddr.from(block);
+        // The bit that should be inverted to get the buddy's address
+        // Could be a LUT but I doubt this could positively impact performance
+        const bit = 1 << (min_block_order + order);
+        addr.v ^= bit;
+        return addr.to(*Block);
+    }
+
+    pub inline fn parent(block: *Block, parent_order: usize) *Block {
+        var addr = VirtAddr.from(block);
+        const bit = 1 << (min_block_order + parent_order);
+        addr.v &= !bit;
+        return addr.to(*Block);
+    }
+
+    pub inline fn page(block: *Block) *Page {
+        return VirtAddr.from(block).page();
+    }
 };
 
 const BlockList = struct {
     first: ?*Block,
-    free: []usize,
 };
 
-const MemRegion = struct {
-    free: [orders]BlockList,
-};
+var blocks: [max_order + 1]BlockList = undefined;
+var lock: Spinlock = .{};
 
 /// Initialization of the PMM
 pub fn init() void {
+    limine.updateMemoryMap();
+
+}
+
+pub fn logMemmap() void {
     const memmap = limine.getMemoryMap();
     std.log.debug("Memory map:", .{});
     const memmap_entries = memmap.entries[0..memmap.entry_count];
-    var i: usize = 0;
-    for (memmap_entries) |entry_ptr| {
+    for (memmap_entries, 0..) |entry_ptr, i| {
         const entry = entry_ptr.*;
         const entry_type: limine.MemmapType = @enumFromInt(entry.type);
         std.log.debug("Entry 0x{X:0>2}: Base=0x{X:0>16}, Length=0x{X:0>16}, End=0x{X:0>16}, Type={s}", .{
@@ -39,6 +79,116 @@ pub fn init() void {
             entry.base + entry.length,
             @tagName(entry_type),
         });
-        i += 1;
     }
+}
+
+pub inline fn getOrder(size: usize) usize {
+    const shift = std.math.log2(PageSize.default().get());
+    const shifted = (size - 1) >> shift;
+    return @sizeOf(usize) * 8 - @clz(shifted);
+}
+
+/// Allocates a single physical page
+pub fn allocPage(options: PageOptions) Error!*Page {
+    return allocPages(0, options);
+}
+
+/// Allocates 2^order contiguous physical pages
+pub fn allocPages(order: usize, options: PageOptions) Error!*Page {
+    assert(order <= max_order);
+    // For now, just lock unconditionally
+    const interrupts = lock.lock();
+    defer lock.unlock(interrupts);
+
+    const block = try getFreeBlock(order, options);
+    return block.page();
+}
+
+/// The internal memory block allocation function
+/// Assumes the order is sane (<= max_order), and that the lock was previously acquired
+fn getFreeBlock(order: usize, options: PageOptions) Error!*Block {
+    const maybeBlock = blocks[order].first;
+
+    if (maybeBlock) |block| {
+        // A valid block was found, update the BlockList and return it
+        if (block.next) |next| {
+            blocks[order].first = next;
+            next.prev = null;
+        }
+        block.page().page_type = .default;
+        return block;
+    }
+    // No valid block was found
+    if (order == max_order) {
+        // No more blocks to split, OOM
+        return Error.OutOfMemory;
+    }
+
+    // Split (recursive)
+    const bigger_block = try getFreeBlock(order + 1, options);
+    const buddy = VirtAddr.from(bigger_block).add(min_block_size << order).to(*Block);
+    buddy.next = null;
+    blocks[order].first = buddy;
+
+    const buddy_page = buddy.page();
+    buddy_page.page_type = .buddy;
+    buddy_page.buddy_order = order;
+
+    bigger_block.page().page_type = .default;
+
+    return bigger_block;
+}
+
+/// Frees a single physical page
+pub fn freePage(page: *Page) void {
+    return freePages(page, 0);
+}
+
+/// Frees 2^order contiguous physical pages
+pub fn freePages(pages: *Page, order: usize) void {
+    assert(order <= max_order);
+    // For now, just lock unconditionally
+    const interrupts = lock.lock();
+    defer lock.unlock(interrupts);
+
+    const block = pages.get().hhdm().to(*Block);
+    freeBlock(block, order);
+}
+
+/// The internal memory block freeing function
+/// Assumes the order is sane (<= max_order), and that the lock was previously acquired
+fn freeBlock(block: *Block, order: usize) void {
+    var expanded_block = block;
+    var loop_order = order;
+
+    // Merging free blocks
+    while (loop_order < max_order) {
+        const buddy = expanded_block.buddy(loop_order);
+        const buddy_page = buddy.page();
+        if (buddy_page.page_type != .buddy or buddy_page.buddy_order != loop_order) break;
+
+        // Remove the buddy from the freelist
+        if (buddy.prev) |prev| {
+            prev.next = buddy.next;
+        }
+        else {
+            blocks[order].first = buddy.next;
+        }
+        if (buddy.next) |next| {
+            next.prev = buddy.prev;
+        }
+
+        loop_order += 1;
+        expanded_block = expanded_block.parent(loop_order);
+    }
+
+    const page = expanded_block.page();
+    page.page_type = .buddy;
+    page.buddy_order = loop_order;
+
+    // Insert the new block into the freelist
+    const old = blocks[loop_order].first;
+    expanded_block.next = old;
+    expanded_block.prev = null;
+    blocks[loop_order].first = expanded_block;
 }

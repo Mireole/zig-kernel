@@ -85,17 +85,13 @@ export fn uacpi_kernel_map(_: usize, _: usize) ?*anyopaque {
     return null;
 }
 
-export fn uacpi_kernel_unmap(_: *anyopaque, _: usize) void {
-
-}
+export fn uacpi_kernel_unmap(_: *anyopaque, _: usize) void {}
 
 export fn uacpi_kernel_io_map(_: uacpi.IoAddress, _: usize, _: *anyopaque) status {
     return .unimplemented;
 }
 
-export fn uacpi_kernel_io_unmap(_: *anyopaque) void {
-
-}
+export fn uacpi_kernel_io_unmap(_: *anyopaque) void {}
 
 export fn uacpi_kernel_create_spinlock() ?*Spinlock {
     return allocator.create(Spinlock) catch null;
@@ -117,13 +113,9 @@ export fn uacpi_kernel_get_nanoseconds_since_boot() u64 {
     return 0;
 }
 
-export fn uacpi_kernel_stall(_: u64) void {
+export fn uacpi_kernel_stall(_: u64) void {}
 
-}
-
-export fn uacpi_kernel_sleep(_: u64) void {
-
-}
+export fn uacpi_kernel_sleep(_: u64) void {}
 
 export fn uacpi_kernel_get_rsdp(out_rsdp_addr: *u64) status {
     if (limine.rsdp) |rsdp| {
@@ -185,9 +177,7 @@ export fn uacpi_kernel_pci_device_open(_: uacpi.PciAddress, _: *anyopaque) statu
     return .unimplemented;
 }
 
-export fn uacpi_kernel_pci_device_close(_: *anyopaque) void {
-
-}
+export fn uacpi_kernel_pci_device_close(_: *anyopaque) void {}
 
 export fn uacpi_kernel_schedule_work(_: uacpi.WorkType, _: uacpi.WorkHandler, _: *anyopaque) status {
     return .unimplemented;

@@ -3,6 +3,8 @@ const limine = @import("limine");
 const std = @import("std");
 const root = @import("root");
 
+const vmm = root.vmm;
+
 const PhysAddr = root.types.PhysAddr;
 const VirtAddr = root.types.VirtAddr;
 
@@ -96,7 +98,7 @@ pub const MemmapType = enum(u32) {
     framebuffer = limine.LIMINE_MEMMAP_FRAMEBUFFER,
 };
 
-pub fn init() void{
+pub fn init() void {
     preventOptimizations();
 
     // HHDM start
@@ -106,7 +108,7 @@ pub fn init() void{
         @panic("Cannot retrieve the HHDM start address");
     }
     hhdm_start = hhdm_response.*.offset;
-    std.log.debug("Limine HHDM start address: {X:0>16}", .{ hhdm_start });
+    std.log.debug("Limine HHDM start address: {X:0>16}", .{hhdm_start});
 
     const rsdp_request_ptr: *volatile limine.limine_rsdp_request = @ptrCast(&rsdp_request);
     const rsdp_response = rsdp_request_ptr.response;
@@ -153,13 +155,39 @@ pub noinline fn drawLine(offset: usize) void {
     }
 }
 
+/// Returns the memmap reponse
 pub fn getMemoryMap() limine.limine_memmap_response {
     const memmap_request_ptr: *volatile limine.limine_memmap_request = @ptrCast(&memmap_request);
     return memmap_request_ptr.response.*;
 }
 
+/// Changes all pointers inside the memory map request to match the kernel HHDM
+pub fn updateMemoryMap() void {
+    const memmap_request_ptr: *volatile limine.limine_memmap_request = @ptrCast(&memmap_request);
+    const response = toHHDM(VirtAddr.from(memmap_request_ptr.response))
+        .to([*c]limine.struct_limine_memmap_response);
+    // Change the address of the list and every entry it contains
+    response.*.entries = toHHDM(VirtAddr.from(response.*.entries))
+        .to([*c][*c]limine.struct_limine_memmap_entry);
+
+    const entries = response.*.entries[0..response.*.entry_count];
+    for (entries, 0..) |entry, i| {
+        entries[i] = toHHDM(VirtAddr.from(entry)).to([*c]limine.struct_limine_memmap_entry);
+    }
+}
+
+/// Returns a pointer corresponding to the physical address in limine's HHDM
 pub inline fn get(phys: PhysAddr) VirtAddr {
     std.debug.assert(phys.v < hhdm_size);
     const address = phys.v + hhdm_start;
     return VirtAddr.from(address);
+}
+
+/// Changes the value of a pointer from limine's HHDM to the new HHDM
+pub inline fn toHHDM(limine_addr: VirtAddr) VirtAddr {
+    std.debug.assert(limine_addr.v >= hhdm_start and limine_addr.v < hhdm_start + hhdm_size);
+    var hhdm_addr = limine_addr;
+    hhdm_addr.v -= hhdm_start;
+    hhdm_addr.v += vmm.hhdm_start;
+    return hhdm_addr;
 }

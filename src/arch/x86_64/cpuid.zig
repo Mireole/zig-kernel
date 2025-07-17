@@ -6,7 +6,7 @@ pub var huge_pages: bool = undefined;
 /// Cache all needed cpuid values
 pub fn init() void {
     huge_pages = feature_flag(0x80000001, .edx, 26);
-    std.log.debug("Huge pages supported: {}", .{ huge_pages });
+    std.log.debug("Huge pages supported: {}", .{huge_pages});
 }
 
 /// Struct and function from from https://github.com/ziglang/zig/blob/master/lib/std/zig/system/x86.zig

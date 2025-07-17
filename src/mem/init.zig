@@ -5,11 +5,13 @@ const paging = root.paging;
 const limine = root.limine;
 const types = root.types;
 const vmm = root.vmm;
+const pmm = root.pmm;
 const arch = root.arch;
 
 const PageSize = paging.PageSize;
 const PhysAddr = types.PhysAddr;
 const VirtAddr = types.VirtAddr;
+const Page = paging.Page;
 
 pub var page_list = TemporaryPageList{};
 
@@ -44,9 +46,7 @@ const TemporaryPageList = struct {
         var current_entry = entries[this.memmap_index].*;
         var page: PhysAddr = undefined;
 
-        if (current_entry.type != @intFromEnum(limine.MemmapType.usable)
-            or this.memmap_entry_index * default_page_size >= current_entry.length)
-        {
+        if (current_entry.type != @intFromEnum(limine.MemmapType.usable) or this.memmap_entry_index * default_page_size >= current_entry.length) {
             this.memmap_entry_index = 0;
             this.memmap_index += 1;
             // Iterate through the memmap entries until we find the next usable one
@@ -69,11 +69,9 @@ const TemporaryPageList = struct {
 
             if (this.last) |last| {
                 last.next = node;
-            }
-            else {
+            } else {
                 this.first = node;
             }
-
             this.last = node;
             this.pages_in_last_node = 0;
 
@@ -103,14 +101,15 @@ const TemporaryPageList = struct {
 
 /// Create the first VMM and switch to it
 /// Also switches to the relevant kernel stack then jumps to the provided address
-pub fn init(next: VirtAddr) noreturn {
+pub fn init(next: VirtAddr) !noreturn {
     const memmap = limine.getMemoryMap();
+    pmm.logMemmap();
 
     // New VMBase
-    const page = page_list.getPage();
-    const bytes = limine.get(page).toSlice(u8, PageSize.default().get());
+    const vmbase_pg = page_list.getPage();
+    const bytes = limine.get(vmbase_pg).toSlice(u8, PageSize.default().get());
     @memset(bytes, 0);
-    const base = paging.VMBase.current().copy(page);
+    const base = paging.VMBase.current().copy(vmbase_pg);
 
     // Identity map + kernel
     const entries = memmap.entries[0..memmap.entry_count];
@@ -130,27 +129,27 @@ pub fn init(next: VirtAddr) noreturn {
         switch (entry_type) {
             .reserved, .bad_memory => continue,
             .executable_and_modules => {
-                paging.mapInterval(start, end, virt, base, .{
+                try mapInterval(start, end, virt, base, .{
                     .global = true,
                     .early = true,
-                }) catch |err| std.debug.panic("VMM initialization failed, {}", .{ err });
+                });
 
                 // Map the kernel code
                 const kernel_virt = VirtAddr.from(vmm.kernel_start);
-                paging.mapInterval(start, end, kernel_virt, base, .{
+                try mapInterval(start, end, kernel_virt, base, .{
                     .global = true,
                     .early = true,
-                }) catch |err| std.debug.panic("VMM initialization failed, {}", .{ err });
+                });
             },
-            .framebuffer => paging.mapInterval(start, end, virt, base, .{
+            .framebuffer => try mapInterval(start, end, virt, base, .{
                 .caching = .write_combining,
                 .global = true,
                 .early = true,
-            }) catch |err| std.debug.panic("VMM initialization failed, {}", .{ err }),
-            else => paging.mapInterval(start, end, virt, base, .{
+            }),
+            else => try mapInterval(start, end, virt, base, .{
                 .global = true,
                 .early = true,
-            }) catch |err| std.debug.panic("VMM initialization failed, {}", .{ err }),
+            }),
         }
     }
 
@@ -162,13 +161,89 @@ pub fn init(next: VirtAddr) noreturn {
 
     while (current_stack_page.v < stack_start.v) {
         const stack_page = page_list.getPage();
-        paging.map(stack_page, current_stack_page, base, .{
+        try paging.map(stack_page, current_stack_page, base, .{
             .global = true,
             .early = true,
-        }) catch |err| std.debug.panic("VMM initialization failed, {}", .{ err });
+        });
         current_stack_page.v += page_size;
     }
 
-    // Switch to the new VMBase, set the stack (use has to be inlined) and jump to the next function
-    base.use(stack_start, next);
+    // Virtual memory map
+    var last_addr: usize = 0;
+    var last_mapped_page: VirtAddr = VirtAddr.from(0);
+    for (entries) |memmap_entry| {
+        const entry = memmap_entry.*;
+        const entry_type: limine.MemmapType = @enumFromInt(entry.type);
+
+        switch (entry_type) {
+            .usable => {
+                if (entry.base > last_addr) {
+                    // Fill the hole with zeroed-out pages
+                    const start = VirtAddr.from(PhysAddr.from(last_addr).page()).alignUp2(page_size);
+                    const end = VirtAddr.from(PhysAddr.from(entry.base).page()).alignDown2(page_size);
+                    try paging.mapZero(start, end, base, .{
+                        .early = true,
+                        .executable = false,
+                        .global = true,
+                        .read_only = true,
+                        .user = false,
+                    });
+                }
+
+                const start = VirtAddr.from(PhysAddr.from(entry.base).page()).alignDown2(page_size);
+                const end = VirtAddr.from(PhysAddr.from(entry.base + entry.length).page()).add(@sizeOf(Page)).alignUp2(page_size);
+                var current = start;
+                // Prevent mapping an already mapped page
+                if (current.v == last_mapped_page.v) current = current.add(page_size);
+                while (current.v < end.v) {
+                    const new_page = page_list.getPage();
+                    @memset(limine.get(new_page).toSlice(u8, page_size), 0);
+                    try paging.map(new_page, current, base, .{
+                        .early = true,
+                        .executable = false,
+                        .global = true,
+                        .user = false,
+                    });
+                    current = current.add(page_size);
+                }
+                last_addr = entry.base + entry.length;
+                last_mapped_page = end.sub(page_size);
+            },
+            else => {},
+        }
+    }
+    const end = VirtAddr.from(vmm.virt_map_start + vmm.virt_map_size);
+    const start = VirtAddr.from(PhysAddr.from(last_addr).page()).alignUp2(page_size);
+    std.debug.assert(start.v <= end.v);
+    try paging.mapZero(start, end, base, .{
+        .early = true,
+        .executable = false,
+        .global = true,
+        .read_only = true,
+        .user = false,
+    });
+
+    // Switch to the new VMBase, set the stack and jump to the next function
+    base.enable(stack_start, next);
+}
+
+pub fn mapInterval(
+    start: PhysAddr,
+    end: PhysAddr,
+    virt_start: VirtAddr,
+    vm_opt: ?paging.VMBase,
+    options: paging.Options
+) !void {
+    // This function could be implemented in an arch specific way to improve performance a bit (mostly reduce redundant
+    // checks in map calls)
+    std.debug.assert(start.v < end.v);
+    const page_size = @intFromEnum(options.page_size);
+    var phys = start;
+    var virt = virt_start;
+
+    while (phys.v < end.v) {
+        try paging.map(phys, virt, vm_opt, options);
+        phys.v += page_size;
+        virt.v += page_size;
+    }
 }

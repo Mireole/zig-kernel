@@ -12,4 +12,5 @@ const VirtAddr = types.VirtAddr;
 
 pub fn init() void {
     cpuid.init();
+    paging.initZeroPages();
 }
