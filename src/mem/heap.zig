@@ -17,6 +17,7 @@ const Allocator = std.mem.Allocator;
 const Alignment = std.mem.Alignment;
 const PageSize = paging.PageSize;
 const Spinlock = smp.Spinlock;
+const Page = paging.Page;
 
 const assert = std.debug.assert;
 
@@ -52,10 +53,21 @@ const BlockList = struct {
 
 var free_blocks = BlockList{};
 
-pub const create = allocator.create;
-pub const destroy = allocator.destroy;
-pub const alloc = allocator.alloc;
-pub const free = allocator.free;
+pub fn create(T: type) Error.OutOfMemory!*T {
+    return allocator.create(T);
+}
+
+pub fn destroy(ptr: anytype) void {
+    allocator.destroy(ptr);
+}
+
+pub fn alloc(T: type, n: usize) Error.OutOfMemory!*T {
+    return allocator.alloc(T, n);
+}
+
+pub fn free(memory: anytype) void {
+    allocator.free(memory);
+}
 
 fn splitFreeBlock(
     node: *FreeBlock,

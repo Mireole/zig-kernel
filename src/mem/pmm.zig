@@ -10,12 +10,14 @@ const mem = root.mem;
 const smp = root.smp;
 const paging = root.paging;
 const types = root.types;
+const heap = root.heap;
 
 const Spinlock = smp.Spinlock;
 const PageSize = paging.PageSize;
 const PageOptions = paging.PageOptions;
 const Page = paging.Page;
 const VirtAddr = types.VirtAddr;
+const PhysAddr = types.PhysAddr;
 
 const assert = std.debug.assert;
 
@@ -23,8 +25,8 @@ const Error = error {
     OutOfMemory,
 };
 
-const min_block_size = PageSize.default().get();
-const min_block_order = std.math.log2(min_block_size);
+const smallest_block_size = PageSize.default().get();
+const min_block_order = std.math.log2(smallest_block_size);
 const max_order = 9; // 2 MiB blocks
 
 const Block = struct {
@@ -35,15 +37,17 @@ const Block = struct {
         var addr = VirtAddr.from(block);
         // The bit that should be inverted to get the buddy's address
         // Could be a LUT but I doubt this could positively impact performance
-        const bit = 1 << (min_block_order + order);
+        const shift: u6 = @intCast(min_block_order + order);
+        const bit = @as(usize, 1) << shift;
         addr.v ^= bit;
         return addr.to(*Block);
     }
 
-    pub inline fn parent(block: *Block, parent_order: usize) *Block {
+    pub inline fn parent(block: *Block, current_order: usize) *Block {
         var addr = VirtAddr.from(block);
-        const bit = 1 << (min_block_order + parent_order);
-        addr.v &= !bit;
+        const shift: u6 = @intCast(min_block_order + current_order);
+        const bit = @as(usize, 1) << shift;
+        addr.v &= ~bit;
         return addr.to(*Block);
     }
 
@@ -56,13 +60,44 @@ const BlockList = struct {
     first: ?*Block,
 };
 
-var blocks: [max_order + 1]BlockList = undefined;
+var blocks: [max_order + 1]BlockList = @splat(.{ .first = null });
 var lock: Spinlock = .{};
 
 /// Initialization of the PMM
 pub fn init() void {
+    // Update the memory map pointers for the new HHDM
     limine.updateMemoryMap();
 
+    const page_list = &mem.init.page_list;
+    const memmap = limine.getMemoryMap();
+    const memmap_entries = memmap.entries[0..memmap.entry_count];
+    for (memmap_entries, 0..) |entry_ptr, index| {
+        const entry = entry_ptr.*;
+        const entry_type: limine.MemmapType = @enumFromInt(entry.type);
+        // Used pages in this entry
+        var current_page: usize = 0;
+
+        switch (entry_type) {
+            .usable => {
+                if (index < page_list.memmap_index) continue;
+                if (index == page_list.memmap_index) current_page = page_list.memmap_entry_index;
+            },
+            // Can't reclaim the memory map because we are iterating over it right now
+            .bootloader_reclaimable => continue,
+            else => continue,
+        }
+
+        const total_pages = entry.length / smallest_block_size;
+        while (current_page < total_pages) {
+            // Directly using freeBlock so we avoid taking the lock for no reason
+            // TODO Perf merge free memory before inserting
+            const block = PhysAddr.from(entry.base + current_page * smallest_block_size).hhdm().to(*Block);
+            freeBlock(block, 0);
+            current_page += 1;
+        }
+    }
+    std.log.debug("PMM init... OK", .{});
+    logStats();
 }
 
 pub fn logMemmap() void {
@@ -79,6 +114,19 @@ pub fn logMemmap() void {
             entry.base + entry.length,
             @tagName(entry_type),
         });
+    }
+}
+
+pub fn logStats() void {
+    std.log.debug("Buddy statistics:", .{});
+    for (blocks, 0..) |block_list, order| {
+        var node = block_list.first;
+        var count: usize = 0;
+        while (node) |block| {
+            count += 1;
+            node = block.next;
+        }
+        std.log.debug("\tOrder={} (Size=0x{x}), Count={}", .{ order, smallest_block_size << @intCast(order), count });
     }
 }
 
@@ -111,8 +159,8 @@ fn getFreeBlock(order: usize, options: PageOptions) Error!*Block {
 
     if (maybeBlock) |block| {
         // A valid block was found, update the BlockList and return it
+        blocks[order].first = block.next;
         if (block.next) |next| {
-            blocks[order].first = next;
             next.prev = null;
         }
         block.page().page_type = .default;
@@ -126,7 +174,7 @@ fn getFreeBlock(order: usize, options: PageOptions) Error!*Block {
 
     // Split (recursive)
     const bigger_block = try getFreeBlock(order + 1, options);
-    const buddy = VirtAddr.from(bigger_block).add(min_block_size << order).to(*Block);
+    const buddy = VirtAddr.from(bigger_block).add(smallest_block_size << order).to(*Block);
     buddy.next = null;
     blocks[order].first = buddy;
 
@@ -172,23 +220,26 @@ fn freeBlock(block: *Block, order: usize) void {
             prev.next = buddy.next;
         }
         else {
-            blocks[order].first = buddy.next;
+            blocks[loop_order].first = buddy.next;
         }
         if (buddy.next) |next| {
             next.prev = buddy.prev;
         }
 
-        loop_order += 1;
         expanded_block = expanded_block.parent(loop_order);
+        loop_order += 1;
     }
 
     const page = expanded_block.page();
     page.page_type = .buddy;
-    page.buddy_order = loop_order;
+    page.buddy_order = @intCast(loop_order);
 
     // Insert the new block into the freelist
     const old = blocks[loop_order].first;
     expanded_block.next = old;
     expanded_block.prev = null;
+    if (old) |old_block| {
+        old_block.prev = expanded_block;
+    }
     blocks[loop_order].first = expanded_block;
 }

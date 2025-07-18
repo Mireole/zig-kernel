@@ -7,11 +7,14 @@ const types = root.types;
 const vmm = root.vmm;
 const pmm = root.pmm;
 const arch = root.arch;
+const mem = root.mem;
+const heap = root.heap;
 
 const PageSize = paging.PageSize;
 const PhysAddr = types.PhysAddr;
 const VirtAddr = types.VirtAddr;
 const Page = paging.Page;
+const Error = mem.Error;
 
 pub var page_list = TemporaryPageList{};
 
@@ -176,9 +179,10 @@ pub fn init(next: VirtAddr) !noreturn {
         const entry_type: limine.MemmapType = @enumFromInt(entry.type);
 
         switch (entry_type) {
-            .usable => {
+            .usable, .bootloader_reclaimable, .acpi_reclaimable => {
                 if (entry.base > last_addr) {
-                    // Fill the hole with zeroed-out pages
+                    // Fill the hole with zeroed-out pages to prevent VMM page checks (for example from the PMM)
+                    // resulting in page faults
                     const start = VirtAddr.from(PhysAddr.from(last_addr).page()).alignUp2(page_size);
                     const end = VirtAddr.from(PhysAddr.from(entry.base).page()).alignDown2(page_size);
                     try paging.mapZero(start, end, base, .{
@@ -215,6 +219,7 @@ pub fn init(next: VirtAddr) !noreturn {
     const end = VirtAddr.from(vmm.virt_map_start + vmm.virt_map_size);
     const start = VirtAddr.from(PhysAddr.from(last_addr).page()).alignUp2(page_size);
     std.debug.assert(start.v <= end.v);
+    // Fill the last hole
     try paging.mapZero(start, end, base, .{
         .early = true,
         .executable = false,

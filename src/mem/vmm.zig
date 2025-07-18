@@ -24,6 +24,5 @@ const divCeil = std.math.divCeil;
 
 pub inline fn get(addr: PhysAddr) VirtAddr {
     assert(addr.v < hhdm_size);
-    addr.v += hhdm_start;
-    return addr;
+    return VirtAddr.from(addr.v + hhdm_start);
 }
