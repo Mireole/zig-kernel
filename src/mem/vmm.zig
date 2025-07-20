@@ -1,11 +1,11 @@
 const std = @import("std");
-const root = @import("root");
+const kernel = @import("kernel");
 
-const arch = root.arch;
-const paging = root.paging;
+const arch = kernel.arch;
+const paging = kernel.paging;
 
-const PhysAddr = root.types.PhysAddr;
-const VirtAddr = root.types.VirtAddr;
+const PhysAddr = kernel.types.PhysAddr;
+const VirtAddr = kernel.types.VirtAddr;
 const PageSize = paging.PageSize;
 
 pub const hhdm_start = 0xffff800000000000;

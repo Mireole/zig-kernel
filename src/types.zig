@@ -1,8 +1,8 @@
-const root = @import("root");
+const kernel = @import("kernel");
 const std = @import("std");
 
-const paging = root.paging;
-const vmm = root.vmm;
+const paging = kernel.paging;
+const vmm = kernel.vmm;
 
 const Page = paging.Page;
 const PageSize = paging.PageSize;

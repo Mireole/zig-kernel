@@ -1,7 +1,7 @@
 const std = @import("std");
-const root = @import("root");
+const kernel = @import("kernel");
 
-const interrupts = root.interrupts;
+const interrupts = kernel.interrupts;
 
 const cache_line = std.atomic.cache_line;
 const CacheLine: type = @Type(.{ .int = .{ .bits = cache_line * 8, .signedness = .unsigned } });

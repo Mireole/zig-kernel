@@ -110,6 +110,15 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
         .code_model = code_model,
     });
+    kernel_module.addImport("kernel", kernel_module);
+
+    const test_module = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .code_model = code_model,
+        .root_source_file = b.path("src/main.zig"),
+    });
+    test_module.addImport("kernel", test_module);
 
     const kernel = b.addExecutable(.{
         .name = "sanity.elf",
@@ -118,18 +127,30 @@ pub fn build(b: *std.Build) !void {
                           // TODO remove this when the self hosted backend works well enough for Debug
     });
 
+    const kernel_test = b.addTest(.{
+        .name = "sanity.elf",
+        .root_module = test_module,
+        .use_llvm = true,
+        .test_runner = .{ .path = b.path("build/runner.zig"), .mode = .simple },
+        .emit_object = false,
+    });
+
     const kernel_check = b.addExecutable(.{
         .name = "sanity.elf",
         .root_module = kernel_module,
     });
 
     kernel.setLinkerScript(linker_script_path);
+    kernel_test.setLinkerScript(linker_script_path);
     kernel_check.setLinkerScript(linker_script_path);
 
     b.installArtifact(kernel);
 
     const kernel_step = b.step("kernel", "Build the kernel");
     kernel_step.dependOn(&kernel.step);
+
+    const kernel_test_step = b.step("kernel-test", "Build the kernel with tests");
+    kernel_test_step.dependOn(&kernel_test.step);
 
     const kernel_check_step = b.step("check", "Build the kernel without emitting binaries");
     kernel_check_step.dependOn(&kernel_check.step);
@@ -150,6 +171,7 @@ pub fn build(b: *std.Build) !void {
 
     const limine_module = translate_header.addModule("limine");
     kernel_module.addImport("limine", limine_module);
+    test_module.addImport("limine", limine_module);
 
     // Zuacpi
     const zuacpi = b.dependency("zuacpi", .{
@@ -159,20 +181,23 @@ pub fn build(b: *std.Build) !void {
 
     const zuacpi_module = zuacpi.module("zuacpi");
     kernel_module.addImport("zuacpi", zuacpi_module);
+    test_module.addImport("zuacpi", zuacpi_module);
 
     const xorriso = Xorriso.create(b, arch, kernel, limine_dep);
+    const xorriso_test = Xorriso.create(b, arch, kernel_test, limine_dep);
 
     const limine = addLimineSteps(b, limine_dep, xorriso);
+    const limine_test = addLimineSteps(b, limine_dep, xorriso_test);
 
     const other_args: []const []const u8 = switch (optimize) {
         .Debug => &qemu_debug_args,
-        else => &.{},
+        else => &qemu_debug_args,
     };
 
     const qemu_args = try std.mem.concat(allocator, []const u8, &.{qemu_cmdline, other_args});
     defer allocator.free(qemu_args);
 
-    addQemuSteps(b, limine, xorriso, qemu_args);
+    addQemuSteps(b, limine, limine_test, xorriso, xorriso_test, qemu_args, kernel, kernel_test);
 }
 
 fn addLimineSteps(b: *std.Build, dep: *Dependency, xorriso_step: *Xorriso) *Step {
@@ -197,12 +222,19 @@ fn addLimineSteps(b: *std.Build, dep: *Dependency, xorriso_step: *Xorriso) *Step
     limine_run.step.dependOn(&limine_build.step);
     limine_run.step.dependOn(&xorriso_step.step);
 
-    const limine_step = b.step("limine", "Setup limine");
-    limine_step.dependOn(&limine_run.step);
     return &limine_run.step;
 }
 
-fn addQemuSteps(b: *std.Build, limine_step: *Step, xorriso: *Xorriso, qemu_cmdline: []const []const u8) void {
+fn addQemuSteps(
+    b: *std.Build,
+    limine_step: *Step,
+    limine_test_step: *Step,
+    xorriso: *Xorriso,
+    xorriso_test: *Xorriso,
+    qemu_cmdline: []const []const u8,
+    step: *Step.Compile,
+    test_step: *Step.Compile,
+) void {
     const ovmf = b.addSystemCommand(&.{ "./scripts/fetch_ovmf.sh" });
     const ovmf_step = b.step("ovmf", "Fetch OVMF");
     ovmf_step.dependOn(&ovmf.step);
@@ -217,5 +249,14 @@ fn addQemuSteps(b: *std.Build, limine_step: *Step, xorriso: *Xorriso, qemu_cmdli
 
     const qemu_install_step = b.step("qemu-install", "Run in QEMU and output the ELF");
     qemu_install_step.dependOn(&qemu.step);
-    qemu_install_step.dependOn(b.getInstallStep());
+    qemu_install_step.dependOn(&b.addInstallArtifact(step, .{}).step);
+
+    const qemu_test = b.addSystemCommand(qemu_cmdline);
+    qemu_test.addArg("-cdrom");
+    qemu_test.addFileArg(xorriso_test.output_path);
+    qemu_test.step.dependOn(limine_test_step);
+
+    const qemu_test_step = b.step("qemu-test", "Run tests in QEMU and output the ELF");
+    qemu_test_step.dependOn(&qemu_test.step);
+    qemu_test_step.dependOn(&b.addInstallArtifact(test_step, .{}).step);
 }

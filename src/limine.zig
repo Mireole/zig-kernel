@@ -1,12 +1,12 @@
 const builtin = @import("builtin");
 const limine = @import("limine");
 const std = @import("std");
-const root = @import("root");
+const kernel = @import("kernel");
 
-const vmm = root.vmm;
+const vmm = kernel.vmm;
 
-const PhysAddr = root.types.PhysAddr;
-const VirtAddr = root.types.VirtAddr;
+const PhysAddr = kernel.types.PhysAddr;
+const VirtAddr = kernel.types.VirtAddr;
 
 pub var rsdp: ?PhysAddr = null;
 pub var hhdm_start: usize = undefined;

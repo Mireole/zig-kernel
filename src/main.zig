@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+pub const tests = @import("test/tests.zig");
 pub const limine = @import("limine.zig");
 pub const types = @import("types.zig");
 pub const acpi = @import("acpi/acpi.zig");
@@ -87,6 +88,10 @@ export fn init() noreturn {
 
     if (limine.rsdp) |_| {
         acpi.initialize(.{}) catch |err| std.log.err("Could not initialize ACPI: {}", .{err});
+    }
+
+    if (builtin.is_test) {
+        tests.runTests();
     }
 
     hcf();

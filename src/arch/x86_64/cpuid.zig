@@ -1,5 +1,5 @@
 const std = @import("std");
-const root = @import("root");
+const kernel = @import("kernel");
 
 pub var huge_pages: bool = undefined;
 

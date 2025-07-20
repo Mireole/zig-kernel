@@ -1,8 +1,8 @@
 const std = @import("std");
-const root = @import("root");
+const kernel = @import("kernel");
 
 const log = std.log;
-const serial = root.serial;
+const serial = kernel.serial;
 
 fn writeFn(_: *const anyopaque, bytes: []const u8) !usize {
     return logFn(bytes);
@@ -29,6 +29,5 @@ pub fn formattedLog(
         .context = &{},
         .writeFn = writeFn,
     };
-
-    std.fmt.format(writer, level_txt ++ prefix2 ++ format ++ "\n", args) catch {};
+    writer.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch {};
 }

@@ -1,14 +1,14 @@
 const std = @import("std");
-const root = @import("root");
+const kernel = @import("kernel");
 
-const paging = root.paging;
-const limine = root.limine;
-const types = root.types;
-const vmm = root.vmm;
-const pmm = root.pmm;
-const arch = root.arch;
-const mem = root.mem;
-const heap = root.heap;
+const paging = kernel.paging;
+const limine = kernel.limine;
+const types = kernel.types;
+const vmm = kernel.vmm;
+const pmm = kernel.pmm;
+const arch = kernel.arch;
+const mem = kernel.mem;
+const heap = kernel.heap;
 
 const PageSize = paging.PageSize;
 const PhysAddr = types.PhysAddr;

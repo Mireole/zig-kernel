@@ -1,13 +1,13 @@
 const std = @import("std");
 const zuacpi = @import("zuacpi");
-const root = @import("root");
+const kernel = @import("kernel");
 
-const limine = root.limine;
+const limine = kernel.limine;
 const uacpi = zuacpi.uacpi;
-const acpi = root.acpi;
+const acpi = kernel.acpi;
 
 const Error = uacpi.Error;
-const Spinlock = root.smp.Spinlock;
+const Spinlock = kernel.smp.Spinlock;
 // TODO SCHED: use real Mutexes
 const Mutex = Spinlock;
 

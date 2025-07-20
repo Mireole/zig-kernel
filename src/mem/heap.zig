@@ -2,16 +2,15 @@
 // Currently only a simple first-fit freelist
 // TODO PERF: better allocator (slab ?) / nuke the stupid lock out of orbit / don't use the zig allocator when possible
 const std = @import("std");
-const root = @import("root");
+const kernel = @import("kernel");
 
-const paging = root.paging;
-const types = root.types;
-const mem = root.mem;
-const smp = root.smp;
-const pmm = root.pmm;
-const vmm = root.vmm;
+const paging = kernel.paging;
+const types = kernel.types;
+const mem = kernel.mem;
+const smp = kernel.smp;
+const pmm = kernel.pmm;
+const vmm = kernel.vmm;
 
-const Error = mem.Error;
 const VirtAddr = types.VirtAddr;
 const Allocator = std.mem.Allocator;
 const Alignment = std.mem.Alignment;
@@ -20,6 +19,10 @@ const Spinlock = smp.Spinlock;
 const Page = paging.Page;
 
 const assert = std.debug.assert;
+
+const Error = error {
+    OutOfMemory
+};
 
 /// A Zig allocator that can be used with the Zig standard library.
 /// The allocation functions in this file should be preferred over this when possible due to performance concerns.
@@ -53,7 +56,7 @@ const BlockList = struct {
 
 var free_blocks = BlockList{};
 
-pub fn create(T: type) Error.OutOfMemory!*T {
+pub fn create(T: type) Error!*T {
     return allocator.create(T);
 }
 
@@ -61,7 +64,7 @@ pub fn destroy(ptr: anytype) void {
     allocator.destroy(ptr);
 }
 
-pub fn alloc(T: type, n: usize) Error.OutOfMemory!*T {
+pub fn alloc(T: type, n: usize) Error![]T {
     return allocator.alloc(T, n);
 }
 
@@ -159,7 +162,7 @@ fn insertFreeBlock(
 // Zig allocator implementation
 fn rawAlloc(_: *anyopaque, n: usize, alignment: Alignment, _: usize) ?[*]u8 {
     const size = min_alloc.forward(n);
-    if (size >= PageSize.default()) {
+    if (size >= PageSize.default().get()) {
         const order = pmm.getOrder(size);
         const pages = pmm.allocPages(order, .{}) catch return null;
         return vmm.get(pages.get()).to([*]u8);
@@ -245,7 +248,7 @@ fn rawFree(_: *anyopaque, memory: []u8, _: Alignment, _: usize) void {
     const address = @intFromPtr(memory.ptr);
     const size = min_alloc.forward(memory.len);
 
-    if (size >= PageSize.default()) {
+    if (size >= PageSize.default().get()) {
         const order = pmm.getOrder(size);
         const page = VirtAddr.from(address).page();
         pmm.freePages(page, order);

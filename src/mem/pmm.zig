@@ -2,15 +2,15 @@
 // TODO PERF
 
 const std = @import("std");
-const root = @import("root");
+const kernel = @import("kernel");
 
-const limine = root.limine;
-const vmm = root.vmm;
-const mem = root.mem;
-const smp = root.smp;
-const paging = root.paging;
-const types = root.types;
-const heap = root.heap;
+const limine = kernel.limine;
+const vmm = kernel.vmm;
+const mem = kernel.mem;
+const smp = kernel.smp;
+const paging = kernel.paging;
+const types = kernel.types;
+const heap = kernel.heap;
 
 const Spinlock = smp.Spinlock;
 const PageSize = paging.PageSize;
@@ -27,7 +27,7 @@ const Error = error {
 
 const smallest_block_size = PageSize.default().get();
 const min_block_order = std.math.log2(smallest_block_size);
-const max_order = 9; // 2 MiB blocks
+pub const max_order = 9; // 2 MiB blocks
 
 const Block = struct {
     next: ?*Block,
@@ -117,6 +117,20 @@ pub fn logMemmap() void {
     }
 }
 
+pub fn freeBlocks() [max_order + 1]usize {
+    var block_count: [max_order + 1]usize = undefined;
+    for (blocks, 0..) |block_list, order| {
+        var node = block_list.first;
+        var count: usize = 0;
+        while (node) |block| {
+            count += 1;
+            node = block.next;
+        }
+        block_count[order] = count;
+    }
+    return block_count;
+}
+
 pub fn logStats() void {
     std.log.debug("Buddy statistics:", .{});
     for (blocks, 0..) |block_list, order| {
@@ -130,9 +144,9 @@ pub fn logStats() void {
     }
 }
 
+const order_shift = std.math.log2(PageSize.default().get());
 pub inline fn getOrder(size: usize) usize {
-    const shift = std.math.log2(PageSize.default().get());
-    const shifted = (size - 1) >> shift;
+    const shifted = (size - 1) >> order_shift;
     return @sizeOf(usize) * 8 - @clz(shifted);
 }
 
@@ -174,13 +188,13 @@ fn getFreeBlock(order: usize, options: PageOptions) Error!*Block {
 
     // Split (recursive)
     const bigger_block = try getFreeBlock(order + 1, options);
-    const buddy = VirtAddr.from(bigger_block).add(smallest_block_size << order).to(*Block);
+    const buddy = VirtAddr.from(bigger_block).add(smallest_block_size << @intCast(order)).to(*Block);
     buddy.next = null;
     blocks[order].first = buddy;
 
     const buddy_page = buddy.page();
     buddy_page.page_type = .buddy;
-    buddy_page.buddy_order = order;
+    buddy_page.buddy_order = @intCast(order);
 
     bigger_block.page().page_type = .default;
 

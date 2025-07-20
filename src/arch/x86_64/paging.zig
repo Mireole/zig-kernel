@@ -1,18 +1,18 @@
 const std = @import("std");
-const root = @import("root");
+const kernel = @import("kernel");
 
 const cpuid = @import("cpuid.zig");
 
-const mem = root.mem;
-const paging = root.paging;
-const limine = root.limine;
-const arch = root.arch;
+const mem = kernel.mem;
+const paging = kernel.paging;
+const limine = kernel.limine;
+const arch = kernel.arch;
 
-const PhysAddr = root.types.PhysAddr;
-const VirtAddr = root.types.VirtAddr;
+const PhysAddr = kernel.types.PhysAddr;
+const VirtAddr = kernel.types.VirtAddr;
 const Error = mem.Error;
 const Options = paging.Options;
-const Spinlock = root.smp.Spinlock;
+const Spinlock = kernel.smp.Spinlock;
 
 const assert = std.debug.assert;
 
@@ -219,7 +219,7 @@ const CR3 = packed struct(u64) {
             : [value] "r" (cr3),
               [stack] "r" (new_stack),
               [next] "r" (next),
-            : "cc"
+            : .{ .cc = true }
         );
         unreachable;
     }
@@ -363,8 +363,7 @@ fn mapZeroEarly(start: VirtAddr, end: VirtAddr, vm_base: VMBase, options: Option
             const dir_ptr_entry = getPtrEarly(PageDirectory, pml4_entry.getTableAddr(), addr.directory_pointer);
             if (dir_ptr_entry.present) {
                 existingMapping = true;
-            }
-            else {
+            } else {
                 dir_ptr_entry.* = PageDirectory.from(zero_pages[2], options);
             }
             current = current.add(mapped_areas[2]);
@@ -376,8 +375,7 @@ fn mapZeroEarly(start: VirtAddr, end: VirtAddr, vm_base: VMBase, options: Option
             const dir_entry = getPtrEarly(PageDirectory, dir_ptr_entry.getTableAddr(), addr.directory);
             if (dir_entry.present) {
                 existingMapping = true;
-            }
-            else {
+            } else {
                 dir_entry.* = PageDirectory.from(zero_pages[1], options);
             }
             current = current.add(mapped_areas[1]);
@@ -389,8 +387,7 @@ fn mapZeroEarly(start: VirtAddr, end: VirtAddr, vm_base: VMBase, options: Option
             const table_entry = getPtrEarly(PageEntry, dir_entry.getTableAddr(), addr.table);
             if (table_entry.present) {
                 existingMapping = true;
-            }
-            else {
+            } else {
                 table_entry.* = PageEntry.from(zero_pages[0], options);
             }
             current = current.add(mapped_areas[0]);
@@ -403,7 +400,7 @@ fn mapZeroEarly(start: VirtAddr, end: VirtAddr, vm_base: VMBase, options: Option
 }
 
 pub fn initZeroPages() void {
-    const options = Options {
+    const options = Options{
         .executable = false,
         .global = false,
         .read_only = true,

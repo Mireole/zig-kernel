@@ -1,8 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const root = @import("root");
+const kernel = @import("kernel");
 
-const arch = root.arch;
+const arch = kernel.arch;
 const interrupts = arch.interrupts;
 
 pub const Status = interrupts.Status;

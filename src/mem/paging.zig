@@ -1,15 +1,15 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const root = @import("root");
+const kernel = @import("kernel");
 
-const arch = root.arch;
+const arch = kernel.arch;
 const paging = arch.paging;
-const mem = root.mem;
-const limine = root.limine;
-const vmm = root.vmm;
+const mem = kernel.mem;
+const limine = kernel.limine;
+const vmm = kernel.vmm;
 
-const PhysAddr = root.types.PhysAddr;
-const VirtAddr = root.types.VirtAddr;
+const PhysAddr = kernel.types.PhysAddr;
+const VirtAddr = kernel.types.VirtAddr;
 const Error = mem.Error;
 
 pub const PageSize = paging.PageSize;
@@ -32,11 +32,11 @@ pub const Page = struct {
     buddy_order: u8 = undefined,
 
     pub inline fn get(page: *Page) PhysAddr {
-        var addr = PhysAddr.from(page);
+        var addr = VirtAddr.from(page);
         addr.v -= vmm.virt_map_start;
         addr.v /= @sizeOf(Page);
-        addr.v *= PageSize.default();
-        return addr;
+        addr.v *= PageSize.default().get();
+        return PhysAddr.from(addr.v);
     }
 };
 
