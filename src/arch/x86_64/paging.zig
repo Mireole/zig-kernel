@@ -41,6 +41,28 @@ pub const PageSize = enum(usize) {
     pub inline fn get(size: PageSize) usize {
         return @intFromEnum(size);
     }
+
+    /// Returns the largest page size aligned with the given address
+    pub fn aligned(addr: PhysAddr) PageSize {
+        const zeros_4kib = @ctz(PageSize.page_4kib.get());
+        const zeros_2mib = @ctz(PageSize.page_2mib.get());
+        const zeros_1gib = @ctz(PageSize.page_1gib.get());
+        const zeros = @ctz(addr.v);
+        return switch (zeros) {
+            zeros_1gib...64 => largest(),
+            zeros_2mib...zeros_1gib - 1 => .page_2mib,
+            zeros_4kib...zeros_2mib - 1 => .page_4kib,
+            else => unreachable,
+        };
+    }
+
+    pub inline fn lower(size: PageSize) ?PageSize {
+        return switch (size) {
+            .page_1gib => .page_2mib,
+            .page_2mib => .page_4kib,
+            .page_4kib => null,
+        };
+    }
 };
 
 const PATBits = packed struct(u3) {

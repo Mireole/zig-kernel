@@ -217,7 +217,7 @@ pub fn init(next: VirtAddr) !noreturn {
         }
     }
     const end = VirtAddr.from(vmm.virt_map_start + vmm.virt_map_size);
-    const start = VirtAddr.from(PhysAddr.from(last_addr).page()).alignUp2(page_size);
+    const start = last_mapped_page.add(page_size);
     std.debug.assert(start.v <= end.v);
     // Fill the last hole
     try paging.mapZero(start, end, base, .{
@@ -239,16 +239,17 @@ pub fn mapInterval(
     vm_opt: ?paging.VMBase,
     options: paging.Options
 ) !void {
-    // This function could be implemented in an arch specific way to improve performance a bit (mostly reduce redundant
-    // checks in map calls)
     std.debug.assert(start.v < end.v);
-    const page_size = @intFromEnum(options.page_size);
     var phys = start;
     var virt = virt_start;
+    var new_options = options;
 
     while (phys.v < end.v) {
-        try paging.map(phys, virt, vm_opt, options);
-        phys.v += page_size;
-        virt.v += page_size;
+        var page_size = PageSize.aligned(phys);
+        while (phys.v + page_size.get() > end.v) page_size = page_size.lower().?; // Safe to unwrap as the start and end should be page aligned
+        new_options.page_size = page_size;
+        try paging.map(phys, virt, vm_opt, new_options);
+        phys.v += page_size.get();
+        virt.v += page_size.get();
     }
 }

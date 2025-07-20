@@ -31,6 +31,7 @@ comptime {
 
 pub const std_options = std.Options{
     .logFn = log.formattedLog,
+    .log_level = .debug,
 };
 
 pub const panic = std.debug.FullPanic(panicFn);
