@@ -68,6 +68,7 @@ pub fn init() void {
     // Update the memory map pointers for the new HHDM
     limine.updateMemoryMap();
 
+    std.log.debug("Initialising PMM...", .{});
     const page_list = &mem.init.page_list;
     const memmap = limine.getMemoryMap();
     const memmap_entries = memmap.entries[0..memmap.entry_count];
@@ -188,8 +189,9 @@ fn getFreeBlock(order: usize, options: PageOptions) Error!*Block {
 
     // Split (recursive)
     const bigger_block = try getFreeBlock(order + 1, options);
-    const buddy = VirtAddr.from(bigger_block).add(smallest_block_size << @intCast(order)).to(*Block);
+    const buddy = VirtAddr.from(bigger_block).to(*Block).buddy(order);
     buddy.next = null;
+    buddy.prev = null;
     blocks[order].first = buddy;
 
     const buddy_page = buddy.page();

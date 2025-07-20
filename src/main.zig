@@ -41,7 +41,7 @@ pub const zuacpi_options = zuacpi.Options{
 
 fn panicFn(msg: []const u8, first_trace_addr: ?usize) noreturn {
     if (first_trace_addr) |addr| {
-        std.log.err("Kernel panic at {X:0>16}! {s}", .{ addr, msg });
+        std.log.err("Kernel panic at 0x{x:0>16}\n{s}", .{ addr, msg });
     } else {
         std.log.err("Kernel panic at an unknown address! {s}", .{msg});
     }

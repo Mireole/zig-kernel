@@ -9,13 +9,14 @@ const base_qemu_args = .{
 //    "-daemonize",
     "-smp", "2",
     "-D", "logs/qemu.log", // Log to logs/qemu.log
-    "-m", "1G",
+    "-m", "8G",
 };
 
 const qemu_debug_args = .{
     "-s", // Enable the gdb stub
     "-S", // Start on paused state
-    "-no-reboot", "-no-shutdown" // Do not restart and hang after a triple fault
+    "-no-reboot", "-no-shutdown", // Do not restart and hang after a triple fault
+    "-M", "accel=tcg,smm=off"
 };
 
 const Step = std.Build.Step;
@@ -138,6 +139,7 @@ pub fn build(b: *std.Build) !void {
     const kernel_check = b.addExecutable(.{
         .name = "sanity.elf",
         .root_module = kernel_module,
+        .use_llvm = true,
     });
 
     kernel.setLinkerScript(linker_script_path);
@@ -191,7 +193,7 @@ pub fn build(b: *std.Build) !void {
 
     const other_args: []const []const u8 = switch (optimize) {
         .Debug => &qemu_debug_args,
-        else => &qemu_debug_args,
+        else => &.{},
     };
 
     const qemu_args = try std.mem.concat(allocator, []const u8, &.{qemu_cmdline, other_args});

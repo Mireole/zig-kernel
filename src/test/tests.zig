@@ -204,7 +204,6 @@ fn failEqualSlices(
 ) !void {
     print("slices differ. first difference occurs at index {d} (0x{X})", .{ diff_index, diff_index });
 
-    // TODO: Should this be configurable by the caller?
     const max_lines: usize = 16;
     const max_window_size: usize = if (T == u8) max_lines * 16 else max_lines;
 

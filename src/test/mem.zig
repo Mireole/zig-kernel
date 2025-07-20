@@ -13,8 +13,8 @@ const AllocatedPage = struct {
 };
 
 test "pmm" {
-    const max_allocs = 4096;
-    const num_tests = 16;
+    const max_allocs = 16384;
+    const num_tests = 16384;
     const pages = try heap.alloc(AllocatedPage, max_allocs);
     defer heap.free(pages);
     const free_blocks_before = pmm.freeBlocks();
