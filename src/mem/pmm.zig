@@ -90,15 +90,20 @@ pub fn init() void {
 
         const total_pages = entry.length / smallest_block_size;
         while (current_page < total_pages) {
-            // Directly using freeBlock so we avoid taking the lock for no reason
-            // TODO Perf merge free memory before inserting
-            const block = PhysAddr.from(entry.base + current_page * smallest_block_size).hhdm().to(*Block);
-            freeBlock(block, 0);
-            current_page += 1;
+            const pages_left = total_pages - current_page;
+            const addr = PhysAddr.from(entry.base + current_page * smallest_block_size);
+            // Deduce max possible order from alignment
+            const aligned_order: u8 = @ctz(addr.v) - @ctz(smallest_block_size);
+            // Max possible order from pages left
+            const left_order: u8 = 64 - @clz(pages_left) - 1;
+            const order = @min(aligned_order, left_order, max_order);
+            const block = addr.hhdm().to(*Block);
+            // Directly using freeBlock to avoid taking the lock for no reason
+            freeBlock(block, order);
+            current_page += (@as(usize, 1) << @intCast(order));
         }
     }
     std.log.debug("PMM init... OK", .{});
-    logStats();
 }
 
 pub fn logMemmap() void {

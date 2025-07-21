@@ -106,7 +106,6 @@ const TemporaryPageList = struct {
 /// Also switches to the relevant kernel stack then jumps to the provided address
 pub fn init(next: VirtAddr) !noreturn {
     const memmap = limine.getMemoryMap();
-    pmm.logMemmap();
 
     // New VMBase
     const vmbase_pg = page_list.getPage();

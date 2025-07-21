@@ -9,7 +9,7 @@ const base_qemu_args = .{
 //    "-daemonize",
     "-smp", "2",
     "-D", "logs/qemu.log", // Log to logs/qemu.log
-    "-m", "8G",
+    "-m", "1G",
 };
 
 const qemu_debug_args = .{

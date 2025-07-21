@@ -257,7 +257,21 @@ pub fn restore(status: Status) void {
 }
 
 fn defaultInterruptHandler(frame: *InterruptFrame) callconv(.{ .x86_64_interrupt = .{}}) void {
-    _ = frame;
+    std.debug.panic(
+        \\ ERROR (Unhandled Interrupt):
+        \\  RIP=  0x{x:0>16}
+        \\  CS=   0x{x:0>16}
+        \\  FLAGS=0x{x:0>16}
+        \\  SP=   0x{x:0>16}
+        \\  SS=   0x{x:0>16}
+        , .{
+            frame.ip,
+            frame.cs,
+            frame.flags,
+            frame.sp,
+            frame.ss,
+        }
+    );
 }
 
 fn defaultErrorHandler(frame: *InterruptFrame, error_code: usize) callconv(.{ .x86_64_interrupt = .{}}) void {
