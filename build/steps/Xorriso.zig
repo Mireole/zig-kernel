@@ -19,7 +19,7 @@ pub fn create(b: *Build, arch: Arch, compile: *Step.Compile, limine: *Dependency
     // Setup the iso root
     const files = Step.WriteFile.create(b);
     files.step.dependOn(&compile.step);
-    // Sanity.iso
+    // kernel.iso
     _ = files.addCopyFile(compile.getEmittedBin(), compile.name);
     // Limine config
     _ = files.addCopyFile(b.path("build/limine.conf"), "limine.conf");
@@ -64,7 +64,7 @@ pub fn create(b: *Build, arch: Arch, compile: *Step.Compile, limine: *Dependency
     xorriso_step.addDirectoryArg(dir);
 
     xorriso_step.addArg("-o");
-    const iso_path = xorriso_step.addOutputFileArg("sanity.iso");
+    const iso_path = xorriso_step.addOutputFileArg("kernel.iso");
 
     xorriso.* = .{
         .step = Step.init(.{

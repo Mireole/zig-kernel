@@ -122,14 +122,14 @@ pub fn build(b: *std.Build) !void {
     test_module.addImport("kernel", test_module);
 
     const kernel = b.addExecutable(.{
-        .name = "sanity.elf",
+        .name = "kernel.elf",
         .root_module = kernel_module,
         .use_llvm = true, // Needed for now as the self hosted backed crashes
                           // TODO remove this when the self hosted backend works well enough for Debug
     });
 
     const kernel_test = b.addTest(.{
-        .name = "sanity.elf",
+        .name = "kernel.elf",
         .root_module = test_module,
         .use_llvm = true,
         .test_runner = .{ .path = b.path("build/runner.zig"), .mode = .simple },
@@ -137,7 +137,7 @@ pub fn build(b: *std.Build) !void {
     });
 
     const kernel_check = b.addExecutable(.{
-        .name = "sanity.elf",
+        .name = "kernel.elf",
         .root_module = kernel_module,
         .use_llvm = true,
     });
@@ -217,7 +217,7 @@ fn addLimineSteps(b: *std.Build, dep: *Dependency, xorriso_step: *Xorriso) *Step
     const limine_run = b.addRunArtifact(limine_build);
     limine_run.addArg("bios-install");
     limine_run.addFileArg(xorriso_step.output_path);
-    const install = b.addInstallFile(xorriso_step.output_path, "sanity.iso");
+    const install = b.addInstallFile(xorriso_step.output_path, "kernel.iso");
     install.step.dependOn(&limine_run.step);
     b.getInstallStep().dependOn(&install.step);
 
