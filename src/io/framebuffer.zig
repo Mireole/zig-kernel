@@ -106,7 +106,7 @@ const Terminal = struct {
         const empty = buffer[moved_bytes..replaced_bytes + moved_bytes];
         @memmove(dest, source);
         @memset(empty, 0);
-        term.curr_col -= rows;
+        term.curr_row -= rows;
     }
 
     pub fn clear(term: *Terminal) void {

@@ -92,6 +92,8 @@ export fn init() noreturn {
         acpi.initialize(.{}) catch |err| std.log.err("Could not initialize ACPI: {}", .{err});
     }
 
+    pmm.logStats();
+
     if (builtin.is_test) {
         tests.runTests();
     }
