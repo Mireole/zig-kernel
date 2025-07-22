@@ -4,6 +4,7 @@ const std = @import("std");
 const kernel = @import("kernel");
 
 const vmm = kernel.vmm;
+const framebuffer = kernel.framebuffer;
 
 const PhysAddr = kernel.types.PhysAddr;
 const VirtAddr = kernel.types.VirtAddr;
@@ -115,6 +116,7 @@ pub fn init() void {
     if (rsdp_response) |response| {
         rsdp = PhysAddr.from(response.*.address);
     }
+    initFramebuffer();
 }
 
 fn preventOptimizations() void {
@@ -133,26 +135,45 @@ fn preventOptimizations() void {
     std.mem.doNotOptimizeAway(memmap_request);
 }
 
+fn initFramebuffer() void {
+    const fb_request_ptr: *volatile limine.limine_framebuffer_request = @ptrCast(&framebuffer_request);
+    const fb_response = fb_request_ptr.response;
+    if (fb_response == null) return;
+    const count = fb_response.*.framebuffer_count;
+    const framebuffers = fb_response.*.framebuffers[0..count];
+    var index: usize = 0;
+    for (framebuffers) |fb_ptr| {
+        if (index >= framebuffer.fb_buf.len) break;
+        const fb = fb_ptr.*;
+        if (fb.bpp != 32 and fb.bpp != 24) {
+            var ptr: [*]u32 = @alignCast(@ptrCast(fb.address));
+            const buffer = ptr[0..(fb.pitch * fb.height) / 4];
+            // Don't know what color this would be, but definitely noticeable
+            @memset(buffer, 0xACBD1234);
+            continue;
+        }
+        framebuffer.fb_buf[index] = .{
+            .buffer = @ptrCast(fb.address),
+            .width = fb.width,
+            .height = fb.height,
+            .pitch = fb.pitch,
+            .bpp = @intCast(fb.bpp),
+            .red_mask = fb.red_mask_size - 1,
+            .red_shift = @intCast(fb.red_mask_shift),
+            .green_mask = fb.green_mask_size - 1,
+            .green_shift = @intCast(fb.green_mask_shift),
+            .blue_mask = fb.blue_mask_size - 1,
+            .blue_shift = @intCast(fb.blue_mask_shift),
+        };
+        index += 1;
+    }
+    framebuffer.framebuffers = framebuffer.fb_buf[0..index];
+}
+
 pub inline fn limineBaseRevisionSupported() bool {
     // Implementation of the LIMINE_BASE_REVISION_SUPPORTED macro
     const ptr: *const volatile [3]u64 = @ptrCast(&limine_base_revision);
     return ptr[2] == 0;
-}
-
-pub noinline fn drawLine(offset: usize) void {
-    const framebuffer_request_ptr: *volatile limine.limine_framebuffer_request = @ptrCast(&framebuffer_request);
-    const response = framebuffer_request_ptr.response;
-    // The framebuffer needs to use 32 bits per pixel for this code to work as intended
-    if (response == null or response.*.framebuffer_count < 1) return;
-
-    const framebuffers = response.*.framebuffers[0..response.*.framebuffer_count];
-
-    for (framebuffers) |framebuffer| {
-        for (0..framebuffer.*.height) |i| {
-            const fb_ptr: [*]volatile u32 = @alignCast(@ptrCast(framebuffer.*.address));
-            fb_ptr[i * (framebuffer.*.pitch / 4) + i + offset] = 0xffffffff;
-        }
-    }
 }
 
 /// Returns the memmap reponse

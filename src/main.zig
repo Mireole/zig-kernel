@@ -14,6 +14,7 @@ pub const pmm = @import("mem/pmm.zig");
 pub const vmm = @import("mem/vmm.zig");
 pub const heap = @import("mem/heap.zig");
 pub const interrupts = @import("interrupt/interrupts.zig");
+pub const framebuffer = @import("io/framebuffer.zig");
 
 pub const arch = switch (builtin.cpu.arch) {
     .x86_64 => @import("arch/x86_64/arch.zig"),
@@ -75,8 +76,8 @@ export fn _start() noreturn {
     }
 
     limine.init();
+    framebuffer.init();
     arch.init();
-    limine.drawLine(0);
 
     mem.init.init(types.VirtAddr.from(&init)) catch |err|
         std.debug.panic("VMM initialization failed, {}", .{err});
