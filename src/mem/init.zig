@@ -183,7 +183,9 @@ pub fn init(next: VirtAddr) !noreturn {
                 if (entry.base > last_addr) {
                     // Fill the hole with zeroed-out pages to prevent VMM page checks (for example from the PMM)
                     // resulting in page faults
-                    const start = VirtAddr.from(PhysAddr.from(last_addr).page()).alignUp2(page_size);
+
+                    // Add 1 to prevent accidentally mapping the previous page again
+                    const start = VirtAddr.from(PhysAddr.from(last_addr).page()).add(1).alignUp2(page_size);
                     const end = VirtAddr.from(PhysAddr.from(entry.base).page()).alignDown2(page_size);
                     try paging.mapZero(start, end, base, .{
                         .early = true,
