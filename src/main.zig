@@ -98,6 +98,8 @@ export fn _init() noreturn {
 }
 
 fn init() !noreturn {
+    limine.updateDebugInfo();
+    limine.updateFramebuffers();
     pmm.init();
 
     if (limine.rsdp) |_| {

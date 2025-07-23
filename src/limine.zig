@@ -224,7 +224,13 @@ pub fn updateMemoryMap() void {
 
 pub fn updateDebugInfo() void {
     if (debug_file) |file| {
-        debug_file = toHHDM(VirtAddr.from(file)).toSlice(u8, file.len);
+        debug_file = toHHDM(VirtAddr.from(file.ptr)).toSlice(u8, file.len);
+    }
+}
+
+pub fn updateFramebuffers() void {
+    for (framebuffer.framebuffers) |*fb| {
+        fb.buffer = toHHDM(VirtAddr.from(fb.buffer)).to([*]u8);
     }
 }
 
