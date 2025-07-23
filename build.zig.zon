@@ -22,8 +22,8 @@
     // DO NOT MANUALLY UPDATE, use the update_deps script
     .dependencies = .{
         .limine = .{
-            .url = "git+https://github.com/limine-bootloader/limine?ref=v9.x-binary#39e685c3695cc373a5859ebf14106c924b0c5ece",
-            .hash = "N-V-__8AAOBwRwDmz6JFkLfV2vqvHUH_opGQNDADqeOoN8am",
+            .url = "git+https://github.com/limine-bootloader/limine?ref=v9.x-binary#0765b5db055680471cea3180e8277dcf701847dc",
+            .hash = "N-V-__8AAA4vSQDKE5DPaumTSNF9J-3tk8DJ_VlfFtts9Nwi",
         },
         .zuacpi = .{
             .url = "git+https://github.com/uACPI/zuacpi?ref=main#ef7dbd2ef0121818ecffef46b71a6ca5183ac88f",
