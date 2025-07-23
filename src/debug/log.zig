@@ -8,7 +8,7 @@ const framebuffer = kernel.framebuffer;
 const Writer = std.Io.Writer;
 
 var buffer: [1024]u8 = undefined;
-var writer = Writer{
+pub var writer = Writer{
     .buffer = &buffer,
     .vtable = &.{
         .drain = &drain,

@@ -42,8 +42,16 @@ pub const PageSize = enum(usize) {
         return @intFromEnum(size);
     }
 
+    pub inline fn min(a: PageSize, b: PageSize) PageSize {
+        return @enumFromInt(@min(@intFromEnum(a), @intFromEnum(b)));
+    }
+
+    pub inline fn max(a: PageSize, b: PageSize) PageSize {
+        return @enumFromInt(@max(@intFromEnum(a), @intFromEnum(b)));
+    }
+
     /// Returns the largest page size aligned with the given address
-    pub fn aligned(addr: PhysAddr) PageSize {
+    pub fn aligned(addr: anytype) PageSize {
         const zeros_4kib = @ctz(PageSize.page_4kib.get());
         const zeros_2mib = @ctz(PageSize.page_2mib.get());
         const zeros_1gib = @ctz(PageSize.page_1gib.get());

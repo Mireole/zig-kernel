@@ -11,8 +11,9 @@ const Spinlock = kernel.smp.Spinlock;
 // TODO SCHED: use real Mutexes
 const Mutex = Spinlock;
 
-var allocator = acpi.allocator;
 const status = uacpi.uacpi_status;
+
+const allocator = kernel.heap.allocator;
 
 // Very simple impl TODO SCHED: use a semaphore once mutexes are implemented
 const Event = struct {

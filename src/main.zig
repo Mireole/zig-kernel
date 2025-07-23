@@ -15,6 +15,7 @@ pub const vmm = @import("mem/vmm.zig");
 pub const heap = @import("mem/heap.zig");
 pub const interrupts = @import("interrupt/interrupts.zig");
 pub const framebuffer = @import("io/framebuffer.zig");
+pub const stacktrace = @import("debug/stacktrace.zig");
 
 pub const arch = switch (builtin.cpu.arch) {
     .x86_64 => @import("arch/x86_64/arch.zig"),
@@ -35,21 +36,11 @@ pub const std_options = std.Options{
     .log_level = .debug,
 };
 
-pub const panic = std.debug.FullPanic(panicFn);
+pub const panic = std.debug.FullPanic(stacktrace.panicFn);
 
 pub const zuacpi_options = zuacpi.Options{
-    .allocator = acpi.allocator,
+    .allocator = heap.allocator,
 };
-
-fn panicFn(msg: []const u8, first_trace_addr: ?usize) noreturn {
-    if (first_trace_addr) |addr| {
-        std.log.err("Kernel panic at 0x{x:0>16}\n{s}", .{ addr, msg });
-    } else {
-        std.log.err("Kernel panic at an unknown address! {s}", .{msg});
-    }
-    interrupts.disable();
-    hcf();
-}
 
 pub fn hcf() noreturn {
     std.log.debug("Entering HCF", .{});
@@ -66,6 +57,16 @@ pub fn hcf() noreturn {
 
 /// Called by Limine, uses the stack provided by Limine.
 export fn _start() noreturn {
+    start() catch |err| {
+        std.log.err("{s}", .{ @errorName(err) });
+        if (@errorReturnTrace()) |trace| {
+            stacktrace.printErrorTrace(trace);
+        }
+        hcf();
+    };
+}
+
+fn start() !noreturn {
     if (!limine.limineBaseRevisionSupported()) {
         hcf();
     }
@@ -79,13 +80,24 @@ export fn _start() noreturn {
     framebuffer.init();
     arch.init();
 
-    mem.init.init(types.VirtAddr.from(&init)) catch |err|
-        std.debug.panic("VMM initialization failed, {}", .{err});
+    pmm.logMemmap();
+
+    try mem.init.init(types.VirtAddr.from(&_init));
 }
 
 /// Called by mem.init.init once the VMBase has been set up.
 /// It is called with a fresh kernel stack.
-export fn init() noreturn {
+export fn _init() noreturn {
+    init() catch |err| {
+        std.log.err("{s}", .{ @errorName(err) });
+        if (@errorReturnTrace()) |trace| {
+            stacktrace.printErrorTrace(trace);
+        }
+        hcf();
+    };
+}
+
+fn init() !noreturn {
     pmm.init();
 
     if (limine.rsdp) |_| {

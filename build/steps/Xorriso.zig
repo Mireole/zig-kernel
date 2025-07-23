@@ -13,14 +13,16 @@ const Xorriso = @This();
 step: Step,
 output_path: LazyPath,
 
-pub fn create(b: *Build, arch: Arch, compile: *Step.Compile, limine: *Dependency) *Xorriso {
+pub fn create(b: *Build, arch: Arch, objcopy: *Step.ObjCopy, limine: *Dependency) *Xorriso {
     var xorriso = b.allocator.create(Xorriso) catch @panic("OOM");
 
     // Setup the iso root
     const files = Step.WriteFile.create(b);
-    files.step.dependOn(&compile.step);
+    files.step.dependOn(&objcopy.step);
     // kernel.iso
-    _ = files.addCopyFile(compile.getEmittedBin(), compile.name);
+    _ = files.addCopyFile(objcopy.getOutput(), objcopy.basename);
+    // kernel.iso.debug
+    _ = files.addCopyFile(objcopy.getOutputSeparatedDebug().?, b.fmt("{s}.debug", .{objcopy.basename}));
     // Limine config
     _ = files.addCopyFile(b.path("build/limine.conf"), "limine.conf");
 

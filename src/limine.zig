@@ -11,6 +11,7 @@ const VirtAddr = kernel.types.VirtAddr;
 
 pub var rsdp: ?PhysAddr = null;
 pub var hhdm_start: usize = undefined;
+pub var debug_file: ?[]const u8 = null;
 
 // 4GiB
 pub const hhdm_size = 0x1_0000_0000;
@@ -88,6 +89,12 @@ export var memmap_request linksection(".requests") = limine.limine_memmap_reques
     .revision = 0,
 };
 
+// Module request
+export var module_request linksection(".requests") = limine.limine_module_request{
+    .id = limine_common_magic ++ .{ 0x3e7e279702be32af, 0xca1c4f3bd1280cee },
+    .revision = 1,
+};
+
 pub const MemmapType = enum(u32) {
     usable = limine.LIMINE_MEMMAP_USABLE,
     reserved = limine.LIMINE_MEMMAP_RESERVED,
@@ -116,6 +123,18 @@ pub fn init() void {
     if (rsdp_response) |response| {
         rsdp = PhysAddr.from(response.*.address);
     }
+
+    const module_request_ptr: *volatile limine.limine_module_request = @ptrCast(&module_request);
+    const module_request_response = module_request_ptr.response;
+    if (module_request_response) |response| {
+        const modules = response.*.modules[0..response.*.module_count];
+        for (modules) |module| {
+            const path: []const u8 = module.*.path[0..std.mem.len(module.*.path)];
+            if (std.mem.eql(u8, path, "/kernel.elf.debug")) {
+                debug_file = @as([*]u8, @ptrCast(module.*.address))[0..module.*.size];
+            }
+        }
+    }
     initFramebuffer();
 }
 
@@ -133,6 +152,7 @@ fn preventOptimizations() void {
     std.mem.doNotOptimizeAway(dtb_request);
     std.mem.doNotOptimizeAway(mp_request);
     std.mem.doNotOptimizeAway(memmap_request);
+    std.mem.doNotOptimizeAway(module_request);
 }
 
 fn initFramebuffer() void {
@@ -182,6 +202,11 @@ pub fn getMemoryMap() limine.limine_memmap_response {
     return memmap_request_ptr.response.*;
 }
 
+pub fn getKernelAddress() PhysAddr {
+    const executable_address_ptr: *volatile limine.limine_executable_address_request = @ptrCast(&executable_address_request);
+    return PhysAddr.from(executable_address_ptr.response.*.physical_base);
+}
+
 /// Changes all pointers inside the memory map request to match the kernel HHDM
 pub fn updateMemoryMap() void {
     const memmap_request_ptr: *volatile limine.limine_memmap_request = @ptrCast(&memmap_request);
@@ -194,6 +219,12 @@ pub fn updateMemoryMap() void {
     const entries = response.*.entries[0..response.*.entry_count];
     for (entries, 0..) |entry, i| {
         entries[i] = toHHDM(VirtAddr.from(entry)).to([*c]limine.struct_limine_memmap_entry);
+    }
+}
+
+pub fn updateDebugInfo() void {
+    if (debug_file) |file| {
+        debug_file = toHHDM(VirtAddr.from(file)).toSlice(u8, file.len);
     }
 }
 

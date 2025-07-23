@@ -41,6 +41,16 @@ pub const PhysAddr = packed struct(usize) {
         return PhysAddr.from(addr.v - n);
     }
 
+    /// Align up the physical address to a specific alignment (must be a power of 2)
+    pub inline fn alignUp2(addr: PhysAddr, alignment: usize) PhysAddr {
+        return PhysAddr.from((addr.v + alignment - 1) & ~(alignment - 1));
+    }
+
+    /// Align down the physical address to a specific alignment (must be a power of 2)
+    pub inline fn alignDown2(addr: PhysAddr, alignment: usize) PhysAddr {
+        return PhysAddr.from(addr.v & ~(alignment - 1));
+    }
+
     pub inline fn page(addr: PhysAddr) *Page {
         const page_index = addr.v / PageSize.default().get();
         const virt_map = vmm.virt_map_start + page_index * @sizeOf(Page);
@@ -99,7 +109,7 @@ pub const VirtAddr =  packed struct(usize) {
         return VirtAddr.from((addr.v + alignment - 1) & ~(alignment - 1));
     }
 
-    /// Align up the virtual down to a specific alignment (must be a power of 2)
+    /// Align down the virtual address to a specific alignment (must be a power of 2)
     pub inline fn alignDown2(addr: VirtAddr, alignment: usize) VirtAddr {
         return VirtAddr.from(addr.v & ~(alignment - 1));
     }

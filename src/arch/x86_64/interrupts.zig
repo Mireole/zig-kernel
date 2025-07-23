@@ -2,6 +2,8 @@ const std = @import("std");
 const kernel = @import("kernel");
 
 const types = kernel.types;
+const stacktrace = kernel.stacktrace;
+
 const VirtAddr = types.VirtAddr;
 
 pub const Status = packed struct(u64) {
@@ -257,7 +259,10 @@ pub fn restore(status: Status) void {
 }
 
 fn defaultInterruptHandler(frame: *InterruptFrame) callconv(.{ .x86_64_interrupt = .{}}) void {
-    std.debug.panic(
+    @setRuntimeSafety(false);
+    stacktrace.interrupt_frame_pointer = @frameAddress();
+    std.debug.panicExtra(
+        frame.ip,
         \\ ERROR (Unhandled Interrupt):
         \\  RIP=  0x{x:0>16}
         \\  CS=   0x{x:0>16}
@@ -275,7 +280,10 @@ fn defaultInterruptHandler(frame: *InterruptFrame) callconv(.{ .x86_64_interrupt
 }
 
 fn defaultErrorHandler(frame: *InterruptFrame, error_code: usize) callconv(.{ .x86_64_interrupt = .{}}) void {
-    std.debug.panic(
+    @setRuntimeSafety(false);
+    stacktrace.interrupt_frame_pointer = @frameAddress();
+    std.debug.panicExtra(
+        frame.ip,
         \\ ERROR:
         \\  RIP=  0x{x:0>16}
         \\  CS=   0x{x:0>16}
@@ -295,8 +303,11 @@ fn defaultErrorHandler(frame: *InterruptFrame, error_code: usize) callconv(.{ .x
 }
 
 fn pageFaultHandler(frame: *InterruptFrame, error_code: usize) callconv(.{ .x86_64_interrupt = .{}}) void {
-    const cr2 = asm volatile ("movq %%cr3, %[value]" : [value] "=&r" (-> usize));
-    std.debug.panic(
+    @setRuntimeSafety(false);
+    const cr2 = asm volatile ("movq %%cr2, %[value]" : [value] "=&r" (-> usize));
+    stacktrace.interrupt_frame_pointer = @frameAddress();
+    std.debug.panicExtra(
+        frame.ip,
         \\ PAGE FAULT:
         \\  RIP=  0x{x:0>16}
         \\  CS=   0x{x:0>16}

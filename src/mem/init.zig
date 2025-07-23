@@ -135,13 +135,6 @@ pub fn init(next: VirtAddr) !noreturn {
                     .global = true,
                     .early = true,
                 });
-
-                // Map the kernel code
-                const kernel_virt = VirtAddr.from(vmm.kernel_start);
-                try mapInterval(start, end, kernel_virt, base, .{
-                    .global = true,
-                    .early = true,
-                });
             },
             .framebuffer => try mapInterval(start, end, virt, base, .{
                 .caching = .write_combining,
@@ -154,11 +147,19 @@ pub fn init(next: VirtAddr) !noreturn {
             }),
         }
     }
+    // Map kernel code
+    const kernel_virt = VirtAddr.from(vmm.kernel_start);
+    const kernel_size = @intFromPtr(&vmm.__kernel_end) - vmm.kernel_start;
+    const kernel_addr = limine.getKernelAddress();
+    const page_size = PageSize.default().get();
+    try mapInterval(kernel_addr, kernel_addr.add(kernel_size).alignUp2(page_size), kernel_virt, base, .{
+        .global = true,
+        .early = true,
+    });
 
     // Map the new stack
     var current_stack_page = VirtAddr.from(vmm.stack_region_start); // Stack end
     const stack_start = VirtAddr.from(vmm.stack_region_start + vmm.stack_size);
-    const page_size = PageSize.default().get();
     std.debug.assert(vmm.stack_size % page_size == 0);
 
     while (current_stack_page.v < stack_start.v) {
@@ -226,7 +227,6 @@ pub fn init(next: VirtAddr) !noreturn {
         .read_only = true,
         .user = false,
     });
-
     // Switch to the new VMBase, set the stack and jump to the next function
     base.enable(stack_start, next);
 }
@@ -244,7 +244,7 @@ pub fn mapInterval(
     var new_options = options;
 
     while (phys.v < end.v) {
-        var page_size = PageSize.aligned(phys);
+        var page_size = PageSize.min(PageSize.aligned(phys), PageSize.aligned(virt));
         while (phys.v + page_size.get() > end.v) page_size = page_size.lower().?; // Safe to unwrap as the start and end should be page aligned
         new_options.page_size = page_size;
         try paging.map(phys, virt, vm_opt, new_options);
