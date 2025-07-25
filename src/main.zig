@@ -80,8 +80,6 @@ fn start() !noreturn {
     framebuffer.init();
     arch.init();
 
-    pmm.logMemmap();
-
     try mem.init.init(types.VirtAddr.from(&_init));
 }
 
@@ -101,12 +99,14 @@ fn init() !noreturn {
     limine.updateDebugInfo();
     limine.updateFramebuffers();
     pmm.init();
+    try framebuffer.initBuffers();
+
+    pmm.logMemmap();
+    pmm.logStats();
 
     if (limine.rsdp) |_| {
         acpi.initialize(.{}) catch |err| std.log.err("Could not initialize ACPI: {}", .{err});
     }
-
-    pmm.logStats();
 
     if (builtin.is_test) {
         tests.runTests();

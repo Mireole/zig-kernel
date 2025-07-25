@@ -200,8 +200,8 @@ pub fn build(b: *std.Build) !void {
     const xorriso = Xorriso.create(b, arch, stripped_kernel, limine_dep);
     const xorriso_test = Xorriso.create(b, arch, stripped_test, limine_dep);
 
-    const limine = addLimineSteps(b, limine_dep, xorriso);
-    const limine_test = addLimineSteps(b, limine_dep, xorriso_test);
+    const limine = addLimineSteps(b, limine_dep, xorriso, "kernel.iso");
+    const limine_test = addLimineSteps(b, limine_dep, xorriso_test, "kernel-test.iso");
 
     const other_args: []const []const u8 = switch (optimize) {
         .Debug => &qemu_debug_args,
@@ -214,7 +214,7 @@ pub fn build(b: *std.Build) !void {
     addQemuSteps(b, limine, limine_test, xorriso, xorriso_test, qemu_args, kernel, kernel_test);
 }
 
-fn addLimineSteps(b: *std.Build, dep: *Dependency, xorriso_step: *Xorriso) *Step {
+fn addLimineSteps(b: *std.Build, dep: *Dependency, xorriso_step: *Xorriso, install_name: []const u8) *Step {
     const module = b.createModule(.{
         .target = b.graph.host,
         .optimize = .ReleaseSafe,
@@ -229,7 +229,7 @@ fn addLimineSteps(b: *std.Build, dep: *Dependency, xorriso_step: *Xorriso) *Step
     const limine_run = b.addRunArtifact(limine_build);
     limine_run.addArg("bios-install");
     limine_run.addFileArg(xorriso_step.output_path);
-    const install = b.addInstallFile(xorriso_step.output_path, "kernel.iso");
+    const install = b.addInstallFile(xorriso_step.output_path, install_name);
     install.step.dependOn(&limine_run.step);
     b.getInstallStep().dependOn(&install.step);
 

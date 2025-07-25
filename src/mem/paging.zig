@@ -7,6 +7,7 @@ const paging = arch.paging;
 const mem = kernel.mem;
 const limine = kernel.limine;
 const vmm = kernel.vmm;
+const pmm = kernel.pmm;
 
 const PhysAddr = kernel.types.PhysAddr;
 const VirtAddr = kernel.types.VirtAddr;
@@ -64,3 +65,26 @@ pub const map = paging.map;
 /// Creates paging structures to map the virtual address to read-only zeroed out pages.
 /// If vm_opt is null, the current virtual memory base is used.
 pub const mapZero = paging.mapZero;
+
+pub fn mapIntervalAlloc(
+    start: VirtAddr,
+    end: VirtAddr,
+    vm_opt: ?paging.VMBase,
+    options: paging.Options
+) !void {
+    std.debug.assert(start.v < end.v);
+    var virt = start;
+    var new_options = options;
+    // Prevent having to retrieve the base in every paging.map call
+    const vm_base = vm_opt orelse paging.VMBase.current();
+
+    while (virt.v < end.v) {
+        var page_size = PageSize.alignedAllocable(start);
+        while (virt.v + page_size.get() > end.v) page_size = page_size.lower().?; // Safe to unwrap as the start and end should be page aligned
+        // NOTE: this could result in an OOM even though pages of a lower order are still available
+        const page = try pmm.allocPages(page_size.order(), .{});
+        new_options.page_size = page_size;
+        try paging.map(page.get(), virt, vm_base, new_options);
+        virt.v += page_size.get();
+    }
+}

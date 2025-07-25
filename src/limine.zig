@@ -174,6 +174,7 @@ fn initFramebuffer() void {
         }
         framebuffer.fb_buf[index] = .{
             .buffer = @ptrCast(fb.address),
+            .frame_buffer = @ptrCast(fb.address),
             .width = fb.width,
             .height = fb.height,
             .pitch = fb.pitch,
@@ -243,7 +244,6 @@ pub inline fn get(phys: PhysAddr) VirtAddr {
 
 /// Changes the value of a pointer from limine's HHDM to the new HHDM
 pub inline fn toHHDM(limine_addr: VirtAddr) VirtAddr {
-    std.debug.assert(limine_addr.v >= hhdm_start and limine_addr.v < hhdm_start + hhdm_size);
     var hhdm_addr = limine_addr;
     hhdm_addr.v -= hhdm_start;
     hhdm_addr.v += vmm.hhdm_start;

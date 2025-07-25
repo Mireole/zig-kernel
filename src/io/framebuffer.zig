@@ -2,6 +2,7 @@ const std = @import("std");
 const kernel = @import("kernel");
 
 const types = kernel.types;
+const vmm = kernel.vmm;
 
 const VirtAddr = types.VirtAddr;
 
@@ -20,6 +21,7 @@ const Framebuffer = struct {
     pub const Color = u32;
 
     buffer: [*]u8,
+    frame_buffer: [*]u8,
     width: usize,
     height: usize,
     pitch: usize,
@@ -41,6 +43,11 @@ const Framebuffer = struct {
 
     pub inline fn clear(fb: *Framebuffer) void {
         @memset(fb.buffer[0..fb.pitch*fb.height], 0);
+    }
+
+    pub inline fn flush(fb: *Framebuffer) void {
+        if (fb.frame_buffer != fb.buffer)
+            @memcpy(fb.frame_buffer[0..fb.pitch*fb.height], fb.buffer[0..fb.pitch*fb.height]);
     }
 };
 
@@ -123,8 +130,7 @@ var term_buf: [4]Terminal = undefined;
 var terminals: []Terminal = &.{};
 
 pub fn init() void {
-    for (0..framebuffers.len) |i| {
-        var fb = &framebuffers[i];
+    for (framebuffers, 0..) |*fb, i| {
         fb.clear();
         term_buf[i] = .{
             .framebuffer = fb,
@@ -134,14 +140,24 @@ pub fn init() void {
         fb.writePixel(fb.width - 1, fb.height - 1, 0, 0, 255);
         fb.writePixel(fb.width - 2, fb.height - 1, 0, 255, 0);
         fb.writePixel(fb.width - 3, fb.height - 1, 255, 0, 0);
+        fb.flush();
     }
     terminals = term_buf[0..framebuffers.len];
 }
 
+pub fn initBuffers() !void {
+    for (framebuffers) |*fb| {
+        const addr = try vmm.alloc(fb.pitch*fb.height);
+        fb.buffer = addr.to([*]u8);
+        @memcpy(fb.buffer[0..fb.pitch*fb.height], fb.frame_buffer[0..fb.pitch*fb.height]);
+    }
+}
+
 pub fn writeString(string: []const u8) void {
-    for (string) |char| {
-        for (0..terminals.len) |i| {
-            terminals[i].write(char);
+    for (terminals) |*term| {
+        for (string) |char| {
+            term.write(char);
         }
+        term.framebuffer.flush();
     }
 }

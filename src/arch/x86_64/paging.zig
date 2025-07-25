@@ -7,12 +7,14 @@ const mem = kernel.mem;
 const paging = kernel.paging;
 const limine = kernel.limine;
 const arch = kernel.arch;
+const pmm = kernel.pmm;
 
 const PhysAddr = kernel.types.PhysAddr;
 const VirtAddr = kernel.types.VirtAddr;
 const Error = mem.Error;
-const Options = paging.Options;
 const Spinlock = kernel.smp.Spinlock;
+
+pub const Options = paging.Options;
 
 const assert = std.debug.assert;
 
@@ -64,11 +66,29 @@ pub const PageSize = enum(usize) {
         };
     }
 
+    /// Returns the largest page size aligned with the given address, that can also be directly allocated from the PMM
+    pub fn alignedAllocable(addr: anytype) PageSize {
+        const zeros_4kib = @ctz(PageSize.page_4kib.get());
+        const zeros_2mib = @ctz(PageSize.page_2mib.get());
+        const zeros = @ctz(addr.v);
+        return switch (zeros) {
+            zeros_2mib...64 => .page_2mib,
+            zeros_4kib...zeros_2mib - 1 => .page_4kib,
+            else => unreachable,
+        };
+    }
+
     pub inline fn lower(size: PageSize) ?PageSize {
         return switch (size) {
             .page_1gib => .page_2mib,
             .page_2mib => .page_4kib,
             .page_4kib => null,
+        };
+    }
+
+    pub inline fn order(size: PageSize) u6 {
+        return switch (size) {
+            inline else => |page_size| comptime pmm.getOrder(page_size.get())
         };
     }
 };
@@ -299,13 +319,67 @@ const LinearAddr = packed struct(u64) {
 // TODO SCHED: use mutexes ?
 var map_lock: Spinlock = .{};
 
+inline fn getPtr(T: type, table_addr: PhysAddr, index: u9) *T {
+    const table = table_addr.hhdm().toSlice(T, PageSize.default().get());
+    return &table[index];
+}
+
+fn getOrCreate(table_addr: PhysAddr, index: u9, options: Options) Error!PageDirectory {
+    const entry = getPtr(PageDirectory, table_addr, index);
+
+    if (!entry.present) {
+        const page = try pmm.allocPage(.{});
+        // clear page
+        const page_bytes = page.get().hhdm().toSlice(u8, PageSize.default().get());
+        @memset(page_bytes, 0);
+
+        entry.* = PageDirectory.from(page.get(), options);
+    }
+
+    return entry.*;
+}
+
 pub fn map(phys: PhysAddr, virt: VirtAddr, vm_opt: ?VMBase, options: Options) Error!void {
     const vm_base = vm_opt orelse VMBase.current();
     if (options.early) return mapEarly(phys, virt, vm_base, options);
 
-    @panic("TODO");
-    // TODO: implement this (don't forget page invalidation, only needed when changing page perms / underlying phys addr)
-    // TODO SMP: TLB shootdowns :^)
+    const existingMapping: Error!void = if (options.allow_existing) {} else Error.MappingAlreadyExists;
+    const cr3 = vm_base.cr3;
+    const addr = LinearAddr.from(virt);
+
+    const status = map_lock.lock();
+    defer map_lock.unlock(status);
+
+    const pml4_entry = try getOrCreate(cr3.getTableAddr(), addr.pml4, options);
+
+    if (options.page_size == .page_1gib) {
+        const dir_ptr_entry = getPtr(PageEntryHuge, pml4_entry.getTableAddr(), addr.directory_pointer);
+        if (dir_ptr_entry.present)
+            return existingMapping;
+
+        // Create the mapping
+        dir_ptr_entry.* = PageEntryHuge.from(phys, options);
+        return;
+    }
+
+    const dir_ptr_entry = try getOrCreate(pml4_entry.getTableAddr(), addr.directory_pointer, options);
+
+    if (options.page_size == .page_2mib) {
+        const directory_entry = getPtr(PageEntryHuge, dir_ptr_entry.getTableAddr(), addr.directory);
+        if (directory_entry.present)
+            return existingMapping;
+
+        // Create the mapping
+        directory_entry.* = PageEntryHuge.from(phys, options);
+        return;
+    }
+
+    const directory_entry = try getOrCreate(dir_ptr_entry.getTableAddr(), addr.directory, options);
+    const table_entry = getPtr(PageEntry, directory_entry.getTableAddr(), addr.table);
+    if (table_entry.present)
+        return existingMapping;
+
+    table_entry.* = PageEntry.from(phys, options);
 }
 
 // NOTE: most of the options, notably global, are ignored right now
